@@ -40,16 +40,21 @@ const LOGO_DATA_URI = 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAANwAAADcCAM
 
 function paginateItems<T>(items: T[]): { pageType: string; items: T[]; showSummary: boolean }[] {
   const total = items.length;
-  if (total <= 8) {
+  // Up to 14 items easily fit on a single page along with the summary!
+  if (total <= 14) {
     return [{ pageType: 'first-and-final', items, showSummary: true }];
   }
 
   const pages: { pageType: string; items: T[]; showSummary: boolean }[] = [];
   const remaining = [...items];
 
-  let page1Count = 12;
-  if (total <= 14) {
-    page1Count = Math.ceil(total / 2);
+  // If total is between 15 and 30:
+  // Balanced count on Page 1 (e.g. 10 items for 15, or 16 items for 30)
+  let page1Count = Math.min(remaining.length - 1, 16);
+  if (total <= 20) {
+    page1Count = Math.ceil(total * 0.6);
+  } else if (total <= 30) {
+    page1Count = 16;
   }
 
   pages.push({
@@ -59,23 +64,19 @@ function paginateItems<T>(items: T[]): { pageType: string; items: T[]; showSumma
   });
 
   while (remaining.length > 0) {
-    if (remaining.length <= 14) {
+    // If remaining items fit on continuation page with summary (up to 16 items)
+    if (remaining.length <= 16) {
       pages.push({
         pageType: 'continuation-with-summary',
         items: remaining.splice(0, remaining.length),
         showSummary: true,
       });
-    } else if (remaining.length <= 22) {
-      const count = Math.ceil(remaining.length / 2);
+    } else {
+      // Continuation page without summary holds up to 22 items
+      const count = remaining.length <= 32 ? Math.ceil(remaining.length / 2) : 22;
       pages.push({
         pageType: 'continuation',
         items: remaining.splice(0, count),
-        showSummary: false,
-      });
-    } else {
-      pages.push({
-        pageType: 'continuation',
-        items: remaining.splice(0, 18),
         showSummary: false,
       });
     }
@@ -398,24 +399,35 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
   .status-badge {
     display: inline-flex;
     align-items: center;
-    gap: 5px;
+    justify-content: center;
+    gap: 6px;
     margin-top: 6px;
-    padding: 3px 11px;
+    padding: 4px 12px;
     border-radius: 999px;
     background: rgba(22, 163, 74, 0.16);
     border: 1px solid rgba(22, 163, 74, 0.45);
     color: #4ADE80;
-    font-size: 10.5px;
+    font-size: 10px;
     font-weight: 700;
-    letter-spacing: 0.6px;
+    letter-spacing: 0.8px;
+    line-height: 1;
+    vertical-align: middle;
   }
 
   .status-badge .dot {
+    display: inline-block;
     width: 6px;
     height: 6px;
     border-radius: 50%;
     background: #4ADE80;
     box-shadow: 0 0 0 2px rgba(74, 222, 128, 0.3);
+    flex-shrink: 0;
+  }
+
+  .status-badge .badge-text {
+    display: inline-block;
+    line-height: 1;
+    vertical-align: middle;
   }
 
   /* Spark Gradient Accent Line */
@@ -581,14 +593,21 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
     font-weight: 500;
   }
 
-  .product-table {
-    width: 100%;
-    border-collapse: separate;
-    border-spacing: 0;
+  .table-box {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
     border: 1px solid var(--light-border);
     border-radius: 7px;
     overflow: hidden;
-    margin-bottom: 16px;
+    margin-bottom: 14px;
+    background: #FFFFFF;
+  }
+
+  .product-table {
+    width: 100%;
+    border-collapse: collapse;
+    height: 100%;
   }
 
   .product-table th {
@@ -600,6 +619,7 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
     text-transform: uppercase;
     padding: 10px 10px;
     border: none;
+    height: 36px;
   }
 
   .product-table th.center, .product-table td.center { text-align: center; }
@@ -607,19 +627,23 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
   .product-table th.right, .product-table td.right { text-align: right; }
 
   .product-table td {
-    padding: 9px 10px;
+    padding: 8.5px 10px;
     font-size: 12px;
     border-bottom: 1px solid var(--light-border);
     background: #FFFFFF;
     vertical-align: middle;
+    height: 34px;
   }
 
   .product-table tr:nth-child(even) td {
     background: #FCFBFA;
   }
 
-  .product-table tr:last-child td {
+  .product-table tr.table-filler-row td {
+    height: auto;
     border-bottom: none;
+    background: #FFFFFF;
+    padding: 0;
   }
 
   .sno-col {
@@ -1232,10 +1256,10 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
                           <svg viewBox="0 0 24 24"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"/></svg>
                           PREMIUM SIVAKASI FIREWORKS
                         </div>
-                        <div className="invoice-title">ORDER INVOICE</div>
+                        <div className="invoice-title">ORDER ESTIMATE</div>
                         <div className="order-number-display">#{order.order_number}</div>
                         <div>
-                          <span className="status-badge"><span className="dot"></span> CONFIRMED</span>
+                          <span className="status-badge"><span className="dot"></span><span className="badge-text">CONFIRMED</span></span>
                         </div>
                       </div>
                     </div>
@@ -1304,7 +1328,7 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
                       </div>
 
                       <div className="invoice-tag-group">
-                        <div className="invoice-title small">ORDER INVOICE — CONTINUED</div>
+                        <div className="invoice-title small">ORDER ESTIMATE — CONTINUED</div>
                         <div className="order-number-display small">#{order.order_number}</div>
                       </div>
                     </div>
@@ -1339,7 +1363,7 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
                           <span className="cust-val">{cityPinStr}</span>
                         </div>
                         <div className="cust-field">
-                          <span className="cust-label">DELIVERY / BILLING ADDRESS</span>
+                          <span className="cust-label">BILLING ADDRESS</span>
                           <span className="cust-val">{customerAddress || cityPinStr}</span>
                         </div>
                         <div className="cust-field">
@@ -1356,38 +1380,42 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
                       <svg viewBox="0 0 24 24"><path d="M12 2L14.5 9.5L22 12L14.5 14.5L12 22L9.5 14.5L2 12L9.5 9.5L12 2Z"/></svg>
                       {isFirstPage ? 'ORDERED FIREWORKS ITEMS' : 'ORDERED FIREWORKS ITEMS — CONTINUED'}
                     </div>
-                    <div className="table-subtitle">Prices include all local taxes &amp; festival discounts</div>
                   </div>
 
-                  <table className="product-table">
-                    <thead>
-                      <tr>
-                        <th className="center" style={{ width: '6%' }}>S.NO</th>
-                        <th className="left" style={{ width: '36%' }}>PRODUCT DESCRIPTION</th>
-                        <th className="center" style={{ width: '8%' }}>QTY</th>
-                        <th className="right" style={{ width: '12%' }}>ACTUAL PRICE</th>
-                        <th className="right" style={{ width: '13%' }}>ACTUAL TOTAL</th>
-                        <th className="right" style={{ width: '12%' }}>DISCOUNT</th>
-                        <th className="right" style={{ width: '13%' }}>NET TOTAL</th>
-                      </tr>
-                    </thead>
-                    <tbody>
-                      {page.items.map(item => (
-                        <tr key={item.sno}>
-                          <td className="center sno-col">{item.sno}</td>
-                          <td className="left prod-col">
-                            <span className="prod-bullet">🎆</span>
-                            <span>{item.name}</span>
-                          </td>
-                          <td className="center qty-col">{item.quantity}</td>
-                          <td className="right regular-price">{formatRs(item.mrp)}</td>
-                          <td className="right regular-price">{formatRs(item.actualTotal)}</td>
-                          <td className="right disc-val">{formatRs(item.discountAmt)}</td>
-                          <td className="right net-val">{formatRs(item.netTotal)}</td>
+                  <div className="table-box">
+                    <table className="product-table">
+                      <thead>
+                        <tr>
+                          <th className="center" style={{ width: '6%' }}>S.NO</th>
+                          <th className="left" style={{ width: '36%' }}>PRODUCT DESCRIPTION</th>
+                          <th className="center" style={{ width: '8%' }}>QTY</th>
+                          <th className="right" style={{ width: '12%' }}>ACTUAL PRICE</th>
+                          <th className="right" style={{ width: '13%' }}>ACTUAL TOTAL</th>
+                          <th className="right" style={{ width: '12%' }}>DISCOUNT</th>
+                          <th className="right" style={{ width: '13%' }}>NET TOTAL</th>
                         </tr>
-                      ))}
-                    </tbody>
-                  </table>
+                      </thead>
+                      <tbody>
+                        {page.items.map(item => (
+                          <tr key={item.sno}>
+                            <td className="center sno-col">{item.sno}</td>
+                            <td className="left prod-col">
+                              <span className="prod-bullet">🎆</span>
+                              <span>{item.name}</span>
+                            </td>
+                            <td className="center qty-col">{item.quantity}</td>
+                            <td className="right regular-price">{formatRs(item.mrp)}</td>
+                            <td className="right regular-price">{formatRs(item.actualTotal)}</td>
+                            <td className="right disc-val">{formatRs(item.discountAmt)}</td>
+                            <td className="right net-val">{formatRs(item.netTotal)}</td>
+                          </tr>
+                        ))}
+                        <tr className="table-filler-row">
+                          <td></td><td></td><td></td><td></td><td></td><td></td><td></td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
 
                   {page.showSummary && (
                     <>
@@ -1558,7 +1586,7 @@ export default function InvoiceView({ order, showActions = true }: InvoiceViewPr
                     <span className="ta">பொருட்கள் போக்குவரத்து சேவை கிடைக்கும் தன்மையைப் பொறுத்து விநியோகம் செய்யப்படும்.</span>
                   </div>
                   <div className="notice-item">
-                    ● <b>Transport Charges:</b> Quoted prices include local taxes; freight &amp; transport hub handling charges are payable at hub.
+                    ● <b>Transport Charges:</b> Freight &amp; transport hub handling charges are payable at hub.
                     <span className="ta">போக்குவரத்து மைய கட்டணம் வாடிக்கையாளரால் நேரடியாக செலுத்தப்பட வேண்டும்.</span>
                   </div>
                   <div className="notice-item">

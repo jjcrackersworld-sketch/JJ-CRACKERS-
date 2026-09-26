@@ -6,8 +6,6 @@ import { sendOrderStatusNotification } from '@/lib/order-notifications';
 export const dynamic = 'force-dynamic';
 
 export async function GET(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
   try {
     const { id } = await params;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';

@@ -90,7 +90,7 @@ export default function ReceiptDownloadPage({ params }: PageProps) {
     return (
       <div className="min-h-screen bg-[#EFE4C6] flex flex-col items-center justify-center p-6 text-center font-sans">
         <div className="w-12 h-12 border-4 border-[#C8102E] border-t-transparent rounded-full animate-spin mb-4" />
-        <p className="text-[#1B2440] font-bold">Retrieving order receipt...</p>
+        <p className="text-[#1B2440] font-bold">Retrieving order estimate...</p>
       </div>
     );
   }
@@ -101,8 +101,8 @@ export default function ReceiptDownloadPage({ params }: PageProps) {
         <div className="w-16 h-16 bg-rose-500/10 rounded-full flex items-center justify-center mb-6 text-rose-600 border border-rose-500/20">
           <AlertCircle size={32} />
         </div>
-        <h2 className="text-2xl font-bold mb-3 text-[#1B2440]">Unable to Load Receipt</h2>
-        <p className="text-stone-600 mb-8 text-sm">{error || 'This receipt link seems to be invalid or has expired.'}</p>
+        <h2 className="text-2xl font-bold mb-3 text-[#1B2440]">Unable to Load Estimate</h2>
+        <p className="text-stone-600 mb-8 text-sm">{error || 'This estimate link seems to be invalid or has expired.'}</p>
         <Link href="/">
           <button className="px-6 py-3 rounded-full bg-[#1B2A5E] text-[#FFFBEF] text-sm font-bold flex items-center gap-2 hover:bg-[#101B42] transition-colors shadow-lg">
             <ArrowLeft size={16} /> Return to Homepage
@@ -134,7 +134,7 @@ export default function ReceiptDownloadPage({ params }: PageProps) {
               disabled={downloading}
               className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl bg-gradient-to-r from-[#FFD400] to-[#F5A300] text-[#101B42] text-xs font-black transition-all hover:scale-105 active:scale-95 shadow-md disabled:opacity-50"
             >
-              <Download size={15} /> {downloading ? 'Preparing...' : 'Download PDF'}
+              <Download size={15} /> {downloading ? 'Preparing...' : 'Download Estimate PDF'}
             </button>
 
             <a

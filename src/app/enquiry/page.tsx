@@ -103,6 +103,15 @@ export default function EnquiryPage() {
     setEmailStatus('idle');
     setEmailErrorMessage(null);
     
+    // Pre-open PDF tab immediately within direct user interaction to bypass popup blockers
+    let pdfTab: Window | null = null;
+    try {
+      pdfTab = window.open('', '_blank');
+      if (pdfTab && pdfTab.document) {
+        pdfTab.document.write(`<!DOCTYPE html><html><head><title>Opening JJ Crackers Estimate...</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#101827;color:#D4A72C;font-family:system-ui,-apple-system,sans-serif;"><div style="text-align:center;padding:24px;"><div style="width:40px;height:40px;border:3px solid #D4A72C;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px;"></div><h3 style="margin:0 0 8px;font-size:18px;color:#FFFFFF;">Generating JJ Crackers Order Estimate</h3><p style="margin:0;color:#94A3B8;font-size:13px;">Your PDF estimate will open here in a moment...</p></div><style>@keyframes spin { to { transform: rotate(360deg); } }</style></body></html>`);
+      }
+    } catch { /* ignore */ }
+
     try {
       const orderItems = items.map(item => ({
         name: item.product.name_en, quantity: item.quantity,
@@ -140,8 +149,9 @@ export default function EnquiryPage() {
         throw new Error(data?.error || 'Failed to place order. Please try again.');
       }
       
-      setOrderResult(data);
+      setOrderResult({ ...data, items: orderItems });
       setStep(4);
+      clearCart();
       setEmailStatus(customerInfo.email ? 'sending' : 'idle');
       setReceiptStatus('generating');
 
@@ -167,8 +177,25 @@ export default function EnquiryPage() {
         
         // Auto-download to client device
         downloadReceipt(doc, data.order_number);
+        
+        // Also auto-open the PDF in a new browser tab
+        try {
+          const pdfBlob = doc.output('blob');
+          const blobUrl = URL.createObjectURL(pdfBlob);
+          if (pdfTab && !pdfTab.closed) {
+            pdfTab.location.href = blobUrl;
+          } else {
+            window.open(blobUrl, '_blank');
+          }
+        } catch (openErr) {
+          console.warn('Could not auto-open PDF in new tab:', openErr);
+        }
+        
         setReceiptStatus('downloaded');
       } catch (pdfErr: any) {
+        if (pdfTab && !pdfTab.closed) {
+          try { pdfTab.close(); } catch {}
+        }
         console.error('PDF generation error:', pdfErr);
         setReceiptStatus('failed');
         try {
@@ -312,34 +339,61 @@ export default function EnquiryPage() {
 
   const handleDownloadReceipt = async () => {
     if (!orderResult) return;
+    let pdfTab: Window | null = null;
+    try {
+      pdfTab = window.open('', '_blank');
+      if (pdfTab && pdfTab.document) {
+        pdfTab.document.write(`<!DOCTYPE html><html><head><title>Opening JJ Crackers Estimate...</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#101827;color:#D4A72C;font-family:system-ui,-apple-system,sans-serif;"><div style="text-align:center;padding:24px;"><div style="width:40px;height:40px;border:3px solid #D4A72C;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px;"></div><h3 style="margin:0 0 8px;font-size:18px;color:#FFFFFF;">Opening JJ Crackers Order Estimate</h3><p style="margin:0;color:#94A3B8;font-size:13px;">Please wait while the PDF document loads...</p></div><style>@keyframes spin { to { transform: rotate(360deg); } }</style></body></html>`);
+      }
+    } catch { /* ignore */ }
+
     const orderItems = items.length > 0 ? items.map(i => ({ name: i.product.name_en, quantity: i.quantity, price: i.product.price, mrp: i.product.mrp })) : (orderResult.items || []);
     const itemsTotal = orderItems.reduce((sum: number, item: any) => sum + (item.price || 0) * (item.quantity || 0), 0);
     const calculatedPacking = Math.round(itemsTotal * 0.03);
     const grandTotal = itemsTotal + calculatedPacking;
     
-    const { generateReceipt, downloadReceipt } = await import('@/lib/pdf/receiptGenerator');
-    const doc = await generateReceipt({
-      orderNumber: orderResult.order_number, date: formatOrderDate(orderResult.created_at),
-      customerName: orderResult.customer_name || customerInfo.name, customerEmail: orderResult.customer_email || customerInfo.email,
-      customerPhone: orderResult.customer_phone || customerInfo.phone, 
-      customerAddress: orderResult.customer_address || customerInfo.address,
-      customerCity: orderResult.customer_city || customerInfo.city,
-      customerPincode: orderResult.customer_pincode || customerInfo.pincode,
-      customerState: orderResult.customer_state || customerInfo.state,
-      customerDistrict: orderResult.customer_district || customerInfo.district,
-      items: orderItems,
-      subtotal: orderResult.subtotal || (itemsTotal + (orderResult.discount_total || 0)), 
-      discountTotal: orderResult.discount_total || 0,
-      totalAmount: grandTotal,
-      packingCharges: calculatedPacking,
-    });
-    downloadReceipt(doc, orderResult.order_number);
+    try {
+      const { generateReceipt, downloadReceipt } = await import('@/lib/pdf/receiptGenerator');
+      const doc = await generateReceipt({
+        orderNumber: orderResult.order_number, date: formatOrderDate(orderResult.created_at),
+        customerName: orderResult.customer_name || customerInfo.name, customerEmail: orderResult.customer_email || customerInfo.email,
+        customerPhone: orderResult.customer_phone || customerInfo.phone, 
+        customerAddress: orderResult.customer_address || customerInfo.address,
+        customerCity: orderResult.customer_city || customerInfo.city,
+        customerPincode: orderResult.customer_pincode || customerInfo.pincode,
+        customerState: orderResult.customer_state || customerInfo.state,
+        customerDistrict: orderResult.customer_district || customerInfo.district,
+        items: orderItems,
+        subtotal: orderResult.subtotal || (itemsTotal + (orderResult.discount_total || 0)), 
+        discountTotal: orderResult.discount_total || 0,
+        totalAmount: grandTotal,
+        packingCharges: calculatedPacking,
+      });
+      downloadReceipt(doc, orderResult.order_number);
+      // Also open the PDF in the pre-opened browser tab
+      try {
+        const pdfBlob = doc.output('blob');
+        const blobUrl = URL.createObjectURL(pdfBlob);
+        if (pdfTab && !pdfTab.closed) {
+          pdfTab.location.href = blobUrl;
+        } else {
+          window.open(blobUrl, '_blank');
+        }
+      } catch (openErr) {
+        console.warn('Could not auto-open PDF in new tab:', openErr);
+      }
+    } catch (err) {
+      if (pdfTab && !pdfTab.closed) {
+        try { pdfTab.close(); } catch {}
+      }
+      console.error('Failed to download estimate:', err);
+    }
   };
 
   // Step 4: Success
   if (step === 4 && orderResult) {
     return (
-      <div className="relative min-h-[60vh] md:min-h-[70vh] flex flex-col items-center justify-center p-4 md:p-6 text-center overflow-hidden z-10">
+      <div className="relative min-h-[calc(100vh-5rem)] flex items-center justify-center p-4 sm:p-6 w-full z-10">
         
         {/* Background Bursting Fireworks */}
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
@@ -350,221 +404,141 @@ export default function EnquiryPage() {
           </AnimatePresence>
         </div>
 
-        {/* Traditional Hanging Lamps (Diyas) popping up / hanging down */}
-        <div className="absolute top-0 inset-x-0 flex justify-between px-6 sm:px-20 pointer-events-none z-10 overflow-hidden h-32">
-          {/* Left Lamp */}
+        {/* Centered Success Card */}
+        <motion.div 
+          initial={{ scale: 0.92, opacity: 0 }} 
+          animate={{ scale: 1, opacity: 1 }} 
+          transition={{ type: 'spring', damping: 18, stiffness: 120 }}
+          className="relative z-10 w-full max-w-[600px] bg-[var(--surface)] text-[var(--text)] border-2 border-[var(--color-gold)]/30 rounded-3xl p-6 sm:p-10 shadow-2xl flex flex-col items-center text-center"
+        >
+          {/* Success Icon */}
           <motion.div 
-            initial={{ y: -100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ type: 'spring', delay: 0.2, duration: 1.2, stiffness: 100 }}
-            className="flex flex-col items-center"
+            initial={{ scale: 0 }} 
+            animate={{ scale: 1 }} 
+            transition={{ type: 'spring', bounce: 0.5, delay: 0.15 }}
+            className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mb-5 border-2 border-emerald-500/30 text-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.15)]"
           >
-            <div className="w-0.5 h-12 bg-gradient-to-b from-[var(--color-gold)]/60 to-[var(--color-gold)]" />
-            <svg width="28" height="28" viewBox="0 0 100 100" className="text-[var(--color-gold)] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
-              <path fill="currentColor" d="M50 15 C52 35 75 50 75 70 A25 25 0 0 1 25 70 C25 50 48 35 50 15 Z" />
-              <circle cx="50" cy="70" r="10" fill="#E25822" />
-              <motion.path 
-                animate={{ scaleY: [1, 1.3, 0.9, 1.2, 1], scaleX: [1, 1.15, 0.95, 1.1, 1] }} 
-                transition={{ repeat: Infinity, duration: 1.5, ease: 'easeInOut' }}
-                fill="#FFD700" 
-                d="M50 42 C53 52 56 58 50 70 C44 58 47 52 50 42 Z" 
-              />
-            </svg>
+            <CheckCircle2 size={40} className="text-emerald-500" />
           </motion.div>
-
-          {/* Left-Center Lamp (Hidden on small) */}
-          <motion.div 
-            initial={{ y: -120, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ type: 'spring', delay: 0.5, duration: 1.2, stiffness: 90 }}
-            className="flex flex-col items-center hidden sm:flex"
+          
+          {/* Thank You Title */}
+          <motion.h2 
+            initial={{ opacity: 0, y: 12 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            transition={{ delay: 0.25 }} 
+            className="text-2xl sm:text-3xl font-bold font-display mb-2 text-gradient-gold"
           >
-            <div className="w-0.5 h-18 bg-gradient-to-b from-[var(--color-gold)]/40 to-[var(--color-gold)]" />
-            <svg width="24" height="24" viewBox="0 0 100 100" className="text-[var(--color-gold)] drop-shadow-[0_0_6px_rgba(212,175,55,0.6)]">
-              <path fill="currentColor" d="M50 15 C52 35 75 50 75 70 A25 25 0 0 1 25 70 C25 50 48 35 50 15 Z" />
-              <circle cx="50" cy="70" r="10" fill="#E25822" />
-              <motion.path 
-                animate={{ scaleY: [1, 1.25, 1], scaleX: [1, 1.1, 1] }} 
-                transition={{ repeat: Infinity, duration: 1.3, ease: 'easeInOut' }}
-                fill="#FFD700" 
-                d="M50 42 C53 52 56 58 50 70 C44 58 47 52 50 42 Z" 
-              />
-            </svg>
-          </motion.div>
-
-          {/* Right-Center Lamp (Hidden on small) */}
-          <motion.div 
-            initial={{ y: -120, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ type: 'spring', delay: 0.6, duration: 1.2, stiffness: 90 }}
-            className="flex flex-col items-center hidden sm:flex"
+            Thank You for Using JJ Crackers! 🪔
+          </motion.h2>
+          
+          {/* Subtitle */}
+          <motion.p 
+            initial={{ opacity: 0, y: 12 }} 
+            animate={{ opacity: 1, y: 0 }} 
+            transition={{ delay: 0.35 }} 
+            className="text-xs sm:text-sm text-[var(--text-muted)] max-w-md mx-auto mb-6"
           >
-            <div className="w-0.5 h-16 bg-gradient-to-b from-[var(--color-gold)]/40 to-[var(--color-gold)]" />
-            <svg width="24" height="24" viewBox="0 0 100 100" className="text-[var(--color-gold)] drop-shadow-[0_0_6px_rgba(212,175,55,0.6)]">
-              <path fill="currentColor" d="M50 15 C52 35 75 50 75 70 A25 25 0 0 1 25 70 C25 50 48 35 50 15 Z" />
-              <circle cx="50" cy="70" r="10" fill="#E25822" />
-              <motion.path 
-                animate={{ scaleY: [1, 1.2, 1], scaleX: [1, 1.15, 1] }} 
-                transition={{ repeat: Infinity, duration: 1.6, ease: 'easeInOut' }}
-                fill="#FFD700" 
-                d="M50 42 C53 52 56 58 50 70 C44 58 47 52 50 42 Z" 
-              />
-            </svg>
-          </motion.div>
-
-          {/* Right Lamp */}
+            We will contact you soon to finalize shipment and payment details.
+          </motion.p>
+          
+          {/* Order Reference + Net Payable + Status */}
           <motion.div 
-            initial={{ y: -100, opacity: 0 }}
-            animate={{ y: 0, opacity: 1 }}
-            transition={{ type: 'spring', delay: 0.3, duration: 1.2, stiffness: 100 }}
-            className="flex flex-col items-center"
+            initial={{ opacity: 0 }} 
+            animate={{ opacity: 1 }} 
+            transition={{ delay: 0.45 }} 
+            className="w-full bg-[var(--surface-high)] border border-[var(--border)] rounded-2xl p-5 mb-5 space-y-4"
           >
-            <div className="w-0.5 h-12 bg-gradient-to-b from-[var(--color-gold)]/60 to-[var(--color-gold)]" />
-            <svg width="28" height="28" viewBox="0 0 100 100" className="text-[var(--color-gold)] drop-shadow-[0_0_10px_rgba(212,175,55,0.8)]">
-              <path fill="currentColor" d="M50 15 C52 35 75 50 75 70 A25 25 0 0 1 25 70 C25 50 48 35 50 15 Z" />
-              <circle cx="50" cy="70" r="10" fill="#E25822" />
-              <motion.path 
-                animate={{ scaleY: [1, 1.35, 0.95, 1.2, 1], scaleX: [1, 1.1, 0.9, 1.15, 1] }} 
-                transition={{ repeat: Infinity, duration: 1.4, ease: 'easeInOut' }}
-                fill="#FFD700" 
-                d="M50 42 C53 52 56 58 50 70 C44 58 47 52 50 42 Z" 
-              />
-            </svg>
-          </motion.div>
-        </div>
-
-        {/* Success Card Wrapper */}
-        <div className="relative z-10 max-w-lg mx-auto w-full px-4 py-2">
-          <motion.div 
-            initial={{ scale: 0.9, opacity: 0 }} 
-            animate={{ scale: 1, opacity: 1 }} 
-            transition={{ type: 'spring', damping: 15 }}
-            className="glass-card rounded-[2rem] p-5 md:p-6 relative overflow-hidden border border-[var(--color-gold)]/30 shadow-[0_0_35px_rgba(212,175,55,0.1)] animate-pulse-glow"
-          >
-            <motion.div 
-              initial={{ scale: 0 }} 
-              animate={{ scale: 1 }} 
-              transition={{ type: 'spring', bounce: 0.4, delay: 0.2 }}
-              className="w-12 h-12 bg-emerald-500/10 rounded-full flex items-center justify-center mb-3 border border-emerald-500/20 mx-auto"
-            >
-              <CheckCircle2 size={24} className="text-emerald-500" />
-            </motion.div>
-            
-            <motion.h2 
-              initial={{ opacity: 0, y: 15 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              transition={{ delay: 0.3 }} 
-              className="text-xl md:text-2xl font-bold font-display mb-1 text-gradient-gold text-glow"
-            >
-              Thank You for Using JJ Crackers! 🪔
-            </motion.h2>
-            <motion.p 
-              initial={{ opacity: 0, y: 15 }} 
-              animate={{ opacity: 1, y: 0 }} 
-              transition={{ delay: 0.4 }} 
-              className="text-xs md:text-sm font-medium text-[var(--text)]/80 mb-4"
-            >
-              We will contact you soon to finalize shipment details.
-            </motion.p>
-            
-            <motion.div 
-              initial={{ opacity: 0 }} 
-              animate={{ opacity: 1 }} 
-              transition={{ delay: 0.5 }} 
-              className="bg-[var(--surface-high)] border border-[var(--border)] rounded-xl p-3.5 w-full mb-4 text-center"
-            >
-              <div className="text-[10px] text-[var(--text-muted)] uppercase tracking-wider mb-0.5">Order Reference</div>
-              <div className="text-xl font-bold text-[var(--color-gold)] font-display mb-1 tracking-wide">{orderResult.order_number}</div>
-              <div className="text-xs text-[var(--text-muted)]">Net Payable: <span className="font-bold text-[var(--text)]">₹{orderResult.total_amount?.toLocaleString('en-IN')}</span></div>
-            </motion.div>
-
-            {/* Dynamic Status Banners */}
-            <div className="grid gap-2 w-full mb-4">
-              
-              {/* Receipt Status Banner */}
-              {receiptStatus === 'generating' && (
-                <div className="flex items-center justify-center gap-2 p-2.5 bg-[var(--surface)] border border-[var(--border)] rounded-xl text-xs text-[var(--text-muted)] shadow-sm">
-                  <div className="w-3.5 h-3.5 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin" />
-                  Generating receipt PDF...
-                </div>
-              )}
-              {receiptStatus === 'downloaded' && (
-                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400 text-left flex gap-2.5 shadow-sm">
-                  <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="block text-emerald-300">Receipt Downloaded!</strong>
-                    Your PDF invoice has been automatically downloaded to your device.
-                  </div>
-                </div>
-              )}
-              {receiptStatus === 'failed' && (
-                <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300 text-left flex gap-2.5 shadow-sm">
-                  <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-450" />
-                  <div>
-                    <strong className="block text-rose-400">Receipt Download Failed</strong>
-                    Could not auto-download the receipt. Please click "Download Receipt" below.
-                  </div>
-                </div>
-              )}
-
-              {/* Email Status Banner */}
-              {Boolean(customerInfo.email || orderResult?.customer_email) && emailStatus === 'sending' && (
-                <div className="flex items-center justify-center gap-2 p-2.5 bg-[var(--surface)] border border-[var(--border)] rounded-xl text-xs text-[var(--text-muted)] shadow-sm">
-                  <div className="w-3.5 h-3.5 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin" />
-                  Emailing confirmation receipt...
-                </div>
-              )}
-              {Boolean(customerInfo.email || orderResult?.customer_email) && emailStatus === 'sent' && (
-                <div className="p-2.5 bg-emerald-500/10 border border-emerald-500/20 rounded-xl text-xs text-emerald-400 text-left flex gap-2.5 shadow-sm">
-                  <CheckCircle2 size={16} className="shrink-0 mt-0.5" />
-                  <div>
-                    <strong className="block text-emerald-300">Receipt Emailed!</strong>
-                    Invoice sent to <strong>{customerInfo.email || orderResult?.customer_email}</strong>.
-                  </div>
-                </div>
-              )}
-              {Boolean(customerInfo.email || orderResult?.customer_email) && emailStatus === 'skipped' && (
-                <div className="p-2.5 bg-amber-500/10 border border-amber-500/20 rounded-xl text-[11px] text-amber-300 text-left flex gap-2.5 shadow-sm">
-                  <AlertCircle size={14} className="shrink-0 mt-0.5 text-amber-450" />
-                  <div>
-                    <strong className="block text-amber-400">Email Status: Sandbox Mode</strong>
-                    Confirmation email was skipped because Resend is not configured.
-                  </div>
-                </div>
-              )}
-              {Boolean(customerInfo.email || orderResult?.customer_email) && emailStatus === 'failed' && (
-                <div className="p-2.5 bg-rose-500/10 border border-rose-500/20 rounded-xl text-xs text-rose-300 text-left flex gap-2.5 shadow-sm">
-                  <AlertCircle size={16} className="shrink-0 mt-0.5 text-rose-450" />
-                  <div>
-                    <strong className="block text-rose-400">Email Delivery Interrupted</strong>
-                    Could not send confirmation email to {customerInfo.email || orderResult?.customer_email}.
-                  </div>
-                </div>
-              )}
+            <div>
+              <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1">Order Reference</div>
+              <div className="text-2xl sm:text-3xl font-extrabold text-[var(--color-gold)] font-display tracking-wide">
+                {orderResult.order_number}
+              </div>
             </div>
 
-            <div className="flex flex-col sm:flex-row gap-3 justify-center">
+            <div className="h-px bg-[var(--border)]/50 w-2/3 mx-auto" />
+
+            <div>
+              <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1">Net Payable</div>
+              <div className="text-xl sm:text-2xl font-black text-[var(--text)]">
+                ₹{orderResult.total_amount?.toLocaleString('en-IN')}
+              </div>
+            </div>
+
+            <div className="h-px bg-[var(--border)]/50 w-2/3 mx-auto" />
+
+            {/* CONFIRMED Badge — Perfectly Centered */}
+            <div className="flex items-center justify-center pt-1">
+              <span className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 text-xs font-bold tracking-wider" style={{ lineHeight: 1 }}>
+                <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 shrink-0 shadow-[0_0_6px_rgba(52,211,153,0.8)]" style={{ display: 'inline-block', verticalAlign: 'middle' }} />
+                <span style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1 }}>CONFIRMED</span>
+              </span>
+            </div>
+          </motion.div>
+
+          {/* Receipt Generation Status */}
+          <div className="w-full mb-5 space-y-2">
+            {receiptStatus === 'generating' && (
+              <div className="flex items-center justify-center gap-2.5 p-3 bg-[var(--surface-high)] border border-[var(--border)] rounded-xl text-xs text-[var(--text-muted)]">
+                <div className="w-4 h-4 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin shrink-0" />
+                <span>Generating order estimate PDF...</span>
+              </div>
+            )}
+            {receiptStatus === 'downloaded' && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-2">
+                <CheckCircle2 size={15} className="shrink-0 text-emerald-500" />
+                <span><strong>Estimate Downloaded!</strong> Your PDF has been saved and opened.</span>
+              </div>
+            )}
+            {receiptStatus === 'failed' && (
+              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-500 dark:text-rose-300 flex items-center justify-center gap-2">
+                <AlertCircle size={15} className="shrink-0 text-rose-500" />
+                <span>Could not auto-download. Click &quot;Download Estimate&quot; below.</span>
+              </div>
+            )}
+
+            {Boolean(customerInfo.email || orderResult?.customer_email) && emailStatus === 'sending' && (
+              <div className="flex items-center justify-center gap-2.5 p-3 bg-[var(--surface-high)] border border-[var(--border)] rounded-xl text-xs text-[var(--text-muted)]">
+                <div className="w-4 h-4 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin shrink-0" />
+                <span>Emailing order estimate...</span>
+              </div>
+            )}
+            {Boolean(customerInfo.email || orderResult?.customer_email) && emailStatus === 'sent' && (
+              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-2">
+                <CheckCircle2 size={15} className="shrink-0 text-emerald-500" />
+                <span>Estimate emailed to <strong>{customerInfo.email || orderResult?.customer_email}</strong></span>
+              </div>
+            )}
+          </div>
+
+          {/* Action Buttons */}
+          <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+            <motion.button 
+              onClick={handleDownloadReceipt} 
+              whileHover={{ scale: 1.02 }} 
+              whileTap={{ scale: 0.97 }}
+              className="py-3.5 px-5 rounded-2xl bg-[var(--surface-high)] border border-[var(--border)] text-[var(--text)] font-bold text-sm flex items-center justify-center gap-2 hover:border-[var(--color-gold)] hover:text-[var(--color-gold)] transition-all"
+            >
+              <Download size={16} /> Download Estimate
+            </motion.button>
+
+            <Link href="/products" className="block">
               <motion.button 
-                onClick={handleDownloadReceipt} 
                 whileHover={{ scale: 1.02 }} 
-                whileTap={{ scale: 0.98 }}
-                className="px-6 py-2.5 rounded-full bg-[var(--surface-high)] border border-[var(--border)] text-[var(--text)] font-bold text-xs flex items-center justify-center gap-1.5 hover:border-[var(--color-gold)] hover:text-[var(--color-gold)] transition-colors"
+                whileTap={{ scale: 0.97 }}
+                className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-black text-sm flex items-center justify-center gap-2 shadow-md hover:shadow-[0_0_15px_rgba(212,175,55,0.3)] transition-all"
               >
-                <Download size={14} /> Download Receipt
+                Continue Shopping <ArrowRight size={16} />
               </motion.button>
+            </Link>
+          </div>
 
-              <Link href="/products" className="block">
-                <motion.button 
-                  whileHover={{ scale: 1.02 }} 
-                  whileTap={{ scale: 0.98 }}
-                  className="w-full px-6 py-2.5 rounded-full bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-black text-xs flex items-center justify-center gap-1.5 shadow-lg hover:shadow-[0_0_15px_rgba(212,175,55,0.3)] transition-all"
-                >
-                  Continue Shopping <ArrowRight size={14} />
-                </motion.button>
-              </Link>
-            </div>
-          </motion.div>
-        </div>
+          {/* Bottom Brand / Support */}
+          <div className="pt-4 border-t border-[var(--border)]/50 w-full text-center">
+            <p className="text-[11px] text-[var(--text-muted)] font-medium">
+              JJ CRACKERS · Sivakasi Direct Factory Outlet · <a href="tel:+917092300252" className="text-[var(--color-gold)] hover:underline font-bold">+91 70923 00252</a>
+            </p>
+          </div>
+        </motion.div>
       </div>
     );
   }
@@ -942,7 +916,7 @@ export default function EnquiryPage() {
               <div className="flex items-start gap-3">
                 <AlertCircle size={20} className="text-[var(--color-gold)] shrink-0 mt-0.5" />
                 <div><p className="font-bold text-sm text-[var(--text)] mb-1">Please verify all details before confirming</p>
-                  <p className="text-xs text-[var(--text-muted)]">Once confirmed, a PDF order receipt will be auto-downloaded.{customerInfo.email ? ` An email confirmation will be sent to ${customerInfo.email}.` : ''}</p></div>
+                  <p className="text-xs text-[var(--text-muted)]">Once confirmed, a PDF order estimate will be auto-downloaded.{customerInfo.email ? ` An email confirmation will be sent to ${customerInfo.email}.` : ''}</p></div>
               </div>
             </div>
 
