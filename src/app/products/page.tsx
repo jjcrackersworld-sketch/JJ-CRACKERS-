@@ -1,9 +1,8 @@
 import { getCategories, getProducts } from '@/lib/db';
 import { ProductCatalogClient } from '@/components/products/ProductCatalogClient';
 
-// ISR: serve cached page instantly, revalidate in background every 30s
-// Admin changes appear within 30 seconds; page loads are instant
-export const revalidate = 30;
+// Dynamic server rendering ensures real-time catalog updates and avoids oversized ISR static HTML payload
+export const dynamic = 'force-dynamic';
 
 export default async function ProductsPage() {
   // Fetch initial data directly on the server to optimize FCP, LCP and SEO
