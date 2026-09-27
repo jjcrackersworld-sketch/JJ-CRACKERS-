@@ -22,6 +22,9 @@ export default function EnquiryPage() {
   const [emailStatus, setEmailStatus] = useState<'idle' | 'sending' | 'sent' | 'skipped' | 'failed'>('idle');
   const [emailErrorMessage, setEmailErrorMessage] = useState<string | null>(null);
   const [receiptStatus, setReceiptStatus] = useState<'idle' | 'generating' | 'downloaded' | 'failed'>('idle');
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null);
+  const [pdfDocRef, setPdfDocRef] = useState<any>(null);
+  const [isGeneratingPdf, setIsGeneratingPdf] = useState(false);
   const [bursts, setBursts] = useState<Array<{ id: number; x: number; y: number; type: 'burst' | 'fountain' | 'spin' | 'sparkle' }>>([]);
 
   const [settings, setSettings] = useState<any>({
@@ -48,30 +51,39 @@ export default function EnquiryPage() {
     }
   }, [step]);
 
-  // Continuous background fireworks on successful order
+  // Festive fireworks celebration on successful order (Section 5 & 22)
+  // Short, smooth, and stops after ~1.8s so after ~2s the animation is calm and static.
   useEffect(() => {
     if (step === 4 && orderResult) {
       // 1. Celebratory confetti shower
       import('canvas-confetti').then((confetti) => {
         confetti.default({
-          particleCount: 120,
-          spread: 90,
+          particleCount: 100,
+          spread: 80,
           origin: { y: 0.6 },
           colors: ['#D4AF37', '#F4E296', '#F43F5E', '#10B981', '#FF9F1C']
         });
       });
 
-      // 2. Setup periodic firework bursts around the screen
-      const fireworkTypes = ['burst', 'fountain', 'spin', 'sparkle'] as const;
-      const interval = setInterval(() => {
-        const id = Date.now() + Math.random();
-        const x = Math.random() * (typeof window !== 'undefined' ? window.innerWidth : 800);
-        const y = Math.random() * (typeof window !== 'undefined' ? window.innerHeight * 0.6 : 400);
-        const type = fireworkTypes[Math.floor(Math.random() * fireworkTypes.length)];
-        setBursts(prev => [...prev.slice(-8), { id, x, y, type }]);
-      }, 800);
+      // 2. Setup short bursts sequence (between 0.4s and 1.8s) then calm/static
+      const fireworkTypes = ['burst', 'fountain', 'sparkle'] as const;
+      const burstDelays = [400, 800, 1200, 1600];
+      const timers: NodeJS.Timeout[] = [];
 
-      return () => clearInterval(interval);
+      burstDelays.forEach((delay) => {
+        const t = setTimeout(() => {
+          const id = Date.now() + Math.random();
+          const x = Math.random() * (typeof window !== 'undefined' ? window.innerWidth * 0.8 : 800) + (typeof window !== 'undefined' ? window.innerWidth * 0.1 : 50);
+          const y = Math.random() * (typeof window !== 'undefined' ? window.innerHeight * 0.45 : 300) + 50;
+          const type = fireworkTypes[Math.floor(Math.random() * fireworkTypes.length)];
+          setBursts(prev => [...prev.slice(-6), { id, x, y, type }]);
+        }, delay);
+        timers.push(t);
+      });
+
+      return () => {
+        timers.forEach(clearTimeout);
+      };
     }
   }, [step, orderResult]);
 
@@ -96,26 +108,177 @@ export default function EnquiryPage() {
     }
   };
 
+  const generateEstimateInBackground = async (
+    orderData: any,
+    orderItems: any[],
+    grandTotal: number,
+    packingCharges: number
+  ) => {
+    setReceiptStatus('generating');
+    setIsGeneratingPdf(true);
+
+    let pdfBase64Data: string | null = null;
+    try {
+      const { generateReceipt, downloadReceipt } = await import('@/lib/pdf/receiptGenerator');
+      const doc = await generateReceipt({
+        orderNumber: orderData.order_number,
+        date: formatOrderDate(orderData.created_at),
+        customerName: customerInfo.name || orderData.customer_name,
+        customerEmail: customerInfo.email || orderData.customer_email,
+        customerPhone: customerInfo.phone || orderData.customer_phone,
+        customerAddress: customerInfo.address || orderData.customer_address,
+        customerCity: customerInfo.city || orderData.customer_city,
+        customerPincode: customerInfo.pincode || orderData.customer_pincode,
+        customerState: customerInfo.state || orderData.customer_state,
+        customerDistrict: customerInfo.district || orderData.customer_district,
+        items: orderItems,
+        subtotal: orderData.subtotal || (getTotal() + getSavings()),
+        discountTotal: orderData.discount_total || getSavings(),
+        totalAmount: grandTotal,
+        packingCharges: packingCharges,
+      });
+
+      setPdfDocRef(doc);
+
+      // Create blob & object URL for viewing
+      const pdfBlob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      setPdfBlobUrl(blobUrl);
+
+      // 1. Automatic PDF download with exact filename format: JJ-{ORDER_ID}-{CUSTOMER_NAME}-Order-Estimate.pdf
+      downloadReceipt(doc, orderData.order_number, customerInfo.name || orderData.customer_name);
+      setReceiptStatus('downloaded');
+
+      // 2. Automatic PDF opening in a new tab/window
+      try {
+        const opened = window.open(blobUrl, '_blank');
+        if (!opened) {
+          console.log('Popup was blocked by browser. User can click OPEN ORDER ESTIMATE.');
+        }
+      } catch (openErr) {
+        console.warn('Could not auto-open PDF in new tab:', openErr);
+      }
+
+      // Convert to data URI for email & WhatsApp attachment
+      const dataUri = doc.output('datauristring');
+      pdfBase64Data = dataUri.split(',')[1];
+    } catch (pdfErr: any) {
+      console.error('PDF generation error:', pdfErr);
+      setReceiptStatus('failed');
+      try {
+        const { logError } = await import('@/lib/tracking');
+        await logError('PDFGenerationError', pdfErr.message || String(pdfErr), pdfErr.stack, { orderNumber: orderData.order_number });
+      } catch (trackErr) {}
+    } finally {
+      setIsGeneratingPdf(false);
+    }
+
+    // 3. Dispatch Email in background (with Base64 PDF attachment)
+    const rawCustomerEmail = (customerInfo.email || orderData?.customer_email || '').trim();
+    const hasValidCustomerEmail = Boolean(
+      rawCustomerEmail &&
+      rawCustomerEmail.includes('@') &&
+      rawCustomerEmail.toLowerCase() !== 'n/a'
+    );
+
+    if (hasValidCustomerEmail) {
+      setEmailStatus('sending');
+      fetch('/api/send-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: rawCustomerEmail,
+          orderNumber: orderData.order_number,
+          customerName: customerInfo.name || orderData.customer_name,
+          items: orderItems,
+          totalAmount: grandTotal,
+          subtotal: orderData.subtotal || (getTotal() + getSavings()),
+          discountTotal: orderData.discount_total || getSavings(),
+          packingCharges: packingCharges,
+          pdfBase64: pdfBase64Data,
+          customerPhone: customerInfo.phone || orderData.customer_phone,
+          customerAddress: customerInfo.address || orderData.customer_address,
+          customerCity: customerInfo.city || orderData.customer_city,
+          customerPincode: customerInfo.pincode || orderData.customer_pincode,
+          customerState: customerInfo.state || orderData.customer_state,
+          customerDistrict: customerInfo.district || orderData.customer_district,
+          notifyAdmin: true,
+        }),
+      })
+      .then(async (emailRes) => {
+        const emailData = await emailRes.json();
+        if (emailRes.ok) {
+          setEmailStatus(emailData.skipped ? 'skipped' : 'sent');
+        } else {
+          setEmailStatus('failed');
+          setEmailErrorMessage(emailData.error || 'Mail delivery failed.');
+        }
+      })
+      .catch(err => {
+        console.error('Email receipt dispatch error:', err);
+        setEmailStatus('failed');
+        setEmailErrorMessage(err instanceof Error ? err.message : String(err));
+      });
+    } else {
+      setEmailStatus('idle');
+      fetch('/api/send-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          to: '',
+          orderNumber: orderData.order_number,
+          customerName: customerInfo.name || orderData.customer_name,
+          items: orderItems,
+          totalAmount: grandTotal,
+          subtotal: orderData.subtotal || (getTotal() + getSavings()),
+          discountTotal: orderData.discount_total || getSavings(),
+          packingCharges: packingCharges,
+          pdfBase64: pdfBase64Data,
+          customerPhone: customerInfo.phone || orderData.customer_phone,
+          customerAddress: customerInfo.address || orderData.customer_address,
+          customerCity: customerInfo.city || orderData.customer_city,
+          customerPincode: customerInfo.pincode || orderData.customer_pincode,
+          customerState: customerInfo.state || orderData.customer_state,
+          customerDistrict: customerInfo.district || orderData.customer_district,
+          notifyAdmin: true,
+        }),
+      }).catch(() => {});
+    }
+
+    // 4. Trigger WhatsApp notification in background
+    fetch('/api/notify-whatsapp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        phone: customerInfo.phone || orderData.customer_phone,
+        orderNumber: orderData.order_number,
+        customerName: customerInfo.name || orderData.customer_name,
+        pdfBase64: pdfBase64Data,
+      })
+    }).catch(err => {
+      console.error('WhatsApp notification dispatch error:', err);
+    });
+
+    // 5. Track order placement analytics event
+    try {
+      const { trackEvent } = await import('@/lib/tracking');
+      await trackEvent('order_placed', 'checkout', { orderNumber: orderData.order_number, totalAmount: grandTotal });
+    } catch (trackErr) {}
+  };
+
   const handlePlaceOrder = async () => {
     setShowConfirmModal(false);
     setIsSubmitting(true);
     setSubmitError(null);
     setEmailStatus('idle');
     setEmailErrorMessage(null);
-    
-    // Pre-open PDF tab immediately within direct user interaction to bypass popup blockers
-    let pdfTab: Window | null = null;
-    try {
-      pdfTab = window.open('', '_blank');
-      if (pdfTab && pdfTab.document) {
-        pdfTab.document.write(`<!DOCTYPE html><html><head><title>Opening JJ Crackers Estimate...</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#101827;color:#D4A72C;font-family:system-ui,-apple-system,sans-serif;"><div style="text-align:center;padding:24px;"><div style="width:40px;height:40px;border:3px solid #D4A72C;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px;"></div><h3 style="margin:0 0 8px;font-size:18px;color:#FFFFFF;">Generating JJ Crackers Order Estimate</h3><p style="margin:0;color:#94A3B8;font-size:13px;">Your PDF estimate will open here in a moment...</p></div><style>@keyframes spin { to { transform: rotate(360deg); } }</style></body></html>`);
-      }
-    } catch { /* ignore */ }
 
     try {
       const orderItems = items.map(item => ({
-        name: item.product.name_en, quantity: item.quantity,
-        price: item.product.price, mrp: item.product.mrp,
+        name: item.product.name_en,
+        quantity: item.quantity,
+        price: item.product.price,
+        mrp: item.product.mrp,
         category: item.product.category,
       }));
       
@@ -127,12 +290,18 @@ export default function EnquiryPage() {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          customer_name: customerInfo.name, customer_email: customerInfo.email,
-          customer_phone: customerInfo.phone, customer_address: customerInfo.address,
-          customer_city: customerInfo.city, customer_pincode: customerInfo.pincode,
-          customer_state: customerInfo.state, customer_district: customerInfo.district,
-          items: orderItems, subtotal: getTotal() + getSavings(),
-          discount_total: getSavings(), total_amount: grandTotal,
+          customer_name: customerInfo.name,
+          customer_email: customerInfo.email,
+          customer_phone: customerInfo.phone,
+          customer_address: customerInfo.address,
+          customer_city: customerInfo.city,
+          customer_pincode: customerInfo.pincode,
+          customer_state: customerInfo.state,
+          customer_district: customerInfo.district,
+          items: orderItems,
+          subtotal: getTotal() + getSavings(),
+          discount_total: getSavings(),
+          total_amount: grandTotal,
           payment_method: 'bank_transfer',
           notes: `Includes 3% packing charges (₹${packingCharges.toLocaleString('en-IN')}) on order value (₹${orderValue.toLocaleString('en-IN')})`,
         }),
@@ -149,163 +318,45 @@ export default function EnquiryPage() {
         throw new Error(data?.error || 'Failed to place order. Please try again.');
       }
       
-      setOrderResult({ ...data, items: orderItems });
+      // IMMEDIATE SUCCESS EXPERIENCE:
+      // Show success modal immediately without waiting for PDF or animations
+      const orderData = { ...data, items: orderItems };
+      setOrderResult(orderData);
       setStep(4);
       clearCart();
-      setEmailStatus(customerInfo.email ? 'sending' : 'idle');
-      setReceiptStatus('generating');
+      setIsSubmitting(false);
 
-      // 1. Generate PDF & Prepare Base64
-      let pdfBase64Data = null;
-      try {
-        const { generateReceipt, downloadReceipt } = await import('@/lib/pdf/receiptGenerator');
-        const doc = await generateReceipt({
-          orderNumber: data.order_number,
-          date: formatOrderDate(data.created_at),
-          customerName: customerInfo.name, customerEmail: customerInfo.email,
-          customerPhone: customerInfo.phone, customerAddress: customerInfo.address,
-          customerCity: customerInfo.city, customerPincode: customerInfo.pincode,
-          customerState: customerInfo.state, customerDistrict: customerInfo.district,
-          items: orderItems, subtotal: getTotal() + getSavings(),
-          discountTotal: getSavings(), totalAmount: grandTotal,
-          packingCharges: packingCharges,
-        });
-        
-        // Convert to data URI and parse raw base64 data for attachment
-        const dataUri = doc.output('datauristring');
-        pdfBase64Data = dataUri.split(',')[1];
-        
-        // Auto-download to client device
-        downloadReceipt(doc, data.order_number);
-        
-        // Also auto-open the PDF in a new browser tab
-        try {
-          const pdfBlob = doc.output('blob');
-          const blobUrl = URL.createObjectURL(pdfBlob);
-          if (pdfTab && !pdfTab.closed) {
-            pdfTab.location.href = blobUrl;
-          } else {
-            window.open(blobUrl, '_blank');
-          }
-        } catch (openErr) {
-          console.warn('Could not auto-open PDF in new tab:', openErr);
-        }
-        
-        setReceiptStatus('downloaded');
-      } catch (pdfErr: any) {
-        if (pdfTab && !pdfTab.closed) {
-          try { pdfTab.close(); } catch {}
-        }
-        console.error('PDF generation error:', pdfErr);
-        setReceiptStatus('failed');
-        try {
-          const { logError } = await import('@/lib/tracking');
-          await logError('PDFGenerationError', pdfErr.message || String(pdfErr), pdfErr.stack, { orderNumber: data.order_number });
-        } catch (trackErr) {}
-      }
+      // Start PDF generation and notifications in background
+      generateEstimateInBackground(orderData, orderItems, grandTotal, packingCharges);
 
-      // 2. Dispatch Email (with Base64 PDF attachment)
-      if (customerInfo.email && customerInfo.email.trim()) {
-        setEmailStatus('sending');
-        fetch('/api/send-receipt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: customerInfo.email.trim(), orderNumber: data.order_number,
-            customerName: customerInfo.name, items: orderItems,
-            totalAmount: grandTotal, subtotal: getTotal() + getSavings(),
-            discountTotal: getSavings(),
-            packingCharges: packingCharges,
-            pdfBase64: pdfBase64Data,
-            customerPhone: customerInfo.phone,
-            customerAddress: customerInfo.address,
-            customerCity: customerInfo.city,
-            customerPincode: customerInfo.pincode,
-            customerState: customerInfo.state,
-            customerDistrict: customerInfo.district,
-            notifyAdmin: true,
-          }),
-        })
-        .then(async (emailRes) => {
-          const emailData = await emailRes.json();
-          if (emailRes.ok) {
-            if (emailData.skipped) {
-              setEmailStatus('skipped');
-            } else {
-              setEmailStatus('sent');
-            }
-          } else {
-            setEmailStatus('failed');
-            setEmailErrorMessage(emailData.error || 'Mail delivery failed.');
-          }
-        })
-        .catch(err => {
-          console.error('Email receipt dispatch error:', err);
-          setEmailStatus('failed');
-          setEmailErrorMessage(err instanceof Error ? err.message : String(err));
-        });
-      } else {
-        setEmailStatus('idle');
-        // Silently notify admin in background with receipt attachment
-        fetch('/api/send-receipt', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            to: '', orderNumber: data.order_number,
-            customerName: customerInfo.name, items: orderItems,
-            totalAmount: grandTotal, subtotal: getTotal() + getSavings(),
-            discountTotal: getSavings(),
-            packingCharges: packingCharges,
-            pdfBase64: pdfBase64Data,
-            customerPhone: customerInfo.phone,
-            customerAddress: customerInfo.address,
-            customerCity: customerInfo.city,
-            customerPincode: customerInfo.pincode,
-            customerState: customerInfo.state,
-            customerDistrict: customerInfo.district,
-            notifyAdmin: true,
-          }),
-        }).catch(() => {});
-      }
-
-      // 3. Trigger WhatsApp notification automatically
-      fetch('/api/notify-whatsapp', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          phone: customerInfo.phone,
-          orderNumber: data.order_number,
-          customerName: customerInfo.name,
-          pdfBase64: pdfBase64Data,
-        })
-      })
-      .then(async (waRes) => {
-        const waData = await waRes.json();
-        console.log('WhatsApp notification result:', waData);
-      })
-      .catch(err => {
-        console.error('WhatsApp notification dispatch error:', err);
-      });
-
-      // 4. Track order placement analytics event
-      try {
-        const { trackEvent } = await import('@/lib/tracking');
-        await trackEvent('order_placed', 'checkout', { orderNumber: data.order_number, totalAmount: getTotal() });
-      } catch (trackErr) {}
-
-      clearCart();
     } catch (error: any) {
       console.error('Order error:', error instanceof Error ? error.message : String(error));
       setSubmitError(error instanceof Error ? error.message : 'An unexpected error occurred while placing your order. Please try again.');
-      
+      setIsSubmitting(false);
+
       // Log order creation failure
       try {
         const { logError } = await import('@/lib/tracking');
         await logError('OrderPlacementError', error.message || String(error), error.stack, { customerEmail: customerInfo.email });
       } catch (trackErr) {}
-    } finally {
-      setIsSubmitting(false);
     }
+  };
+
+  const handleOpenReceipt = async () => {
+    if (pdfBlobUrl) {
+      window.open(pdfBlobUrl, '_blank');
+      return;
+    }
+    await handleDownloadReceipt(true);
+  };
+
+  const handleDownloadAgain = async () => {
+    if (pdfDocRef && orderResult) {
+      const { downloadReceipt } = await import('@/lib/pdf/receiptGenerator');
+      downloadReceipt(pdfDocRef, orderResult.order_number, orderResult.customer_name || customerInfo.name);
+      return;
+    }
+    await handleDownloadReceipt(false);
   };
 
   const handleShareOnWhatsApp = () => {
@@ -337,15 +388,10 @@ export default function EnquiryPage() {
     window.open(url, '_blank', 'noopener,noreferrer');
   };
 
-  const handleDownloadReceipt = async () => {
+  const handleDownloadReceipt = async (openInNewTab = false) => {
     if (!orderResult) return;
-    let pdfTab: Window | null = null;
-    try {
-      pdfTab = window.open('', '_blank');
-      if (pdfTab && pdfTab.document) {
-        pdfTab.document.write(`<!DOCTYPE html><html><head><title>Opening JJ Crackers Estimate...</title></head><body style="margin:0;display:flex;align-items:center;justify-content:center;height:100vh;background:#101827;color:#D4A72C;font-family:system-ui,-apple-system,sans-serif;"><div style="text-align:center;padding:24px;"><div style="width:40px;height:40px;border:3px solid #D4A72C;border-top-color:transparent;border-radius:50%;animation:spin 1s linear infinite;margin:0 auto 16px;"></div><h3 style="margin:0 0 8px;font-size:18px;color:#FFFFFF;">Opening JJ Crackers Order Estimate</h3><p style="margin:0;color:#94A3B8;font-size:13px;">Please wait while the PDF document loads...</p></div><style>@keyframes spin { to { transform: rotate(360deg); } }</style></body></html>`);
-      }
-    } catch { /* ignore */ }
+    setReceiptStatus('generating');
+    setIsGeneratingPdf(true);
 
     const orderItems = items.length > 0 ? items.map(i => ({ name: i.product.name_en, quantity: i.quantity, price: i.product.price, mrp: i.product.mrp })) : (orderResult.items || []);
     const itemsTotal = orderItems.reduce((sum: number, item: any) => sum + (item.price || 0) * (item.quantity || 0), 0);
@@ -355,8 +401,10 @@ export default function EnquiryPage() {
     try {
       const { generateReceipt, downloadReceipt } = await import('@/lib/pdf/receiptGenerator');
       const doc = await generateReceipt({
-        orderNumber: orderResult.order_number, date: formatOrderDate(orderResult.created_at),
-        customerName: orderResult.customer_name || customerInfo.name, customerEmail: orderResult.customer_email || customerInfo.email,
+        orderNumber: orderResult.order_number,
+        date: formatOrderDate(orderResult.created_at),
+        customerName: orderResult.customer_name || customerInfo.name,
+        customerEmail: orderResult.customer_email || customerInfo.email,
         customerPhone: orderResult.customer_phone || customerInfo.phone, 
         customerAddress: orderResult.customer_address || customerInfo.address,
         customerCity: orderResult.customer_city || customerInfo.city,
@@ -369,34 +417,64 @@ export default function EnquiryPage() {
         totalAmount: grandTotal,
         packingCharges: calculatedPacking,
       });
-      downloadReceipt(doc, orderResult.order_number);
-      // Also open the PDF in the pre-opened browser tab
-      try {
-        const pdfBlob = doc.output('blob');
-        const blobUrl = URL.createObjectURL(pdfBlob);
-        if (pdfTab && !pdfTab.closed) {
-          pdfTab.location.href = blobUrl;
-        } else {
-          window.open(blobUrl, '_blank');
-        }
-      } catch (openErr) {
-        console.warn('Could not auto-open PDF in new tab:', openErr);
+
+      setPdfDocRef(doc);
+
+      const pdfBlob = doc.output('blob');
+      const blobUrl = URL.createObjectURL(pdfBlob);
+      setPdfBlobUrl(blobUrl);
+
+      if (openInNewTab) {
+        window.open(blobUrl, '_blank');
+      } else {
+        downloadReceipt(doc, orderResult.order_number, orderResult.customer_name || customerInfo.name);
       }
+      setReceiptStatus('downloaded');
     } catch (err) {
-      if (pdfTab && !pdfTab.closed) {
-        try { pdfTab.close(); } catch {}
-      }
-      console.error('Failed to download estimate:', err);
+      console.error('Failed to generate estimate:', err);
+      setReceiptStatus('failed');
+    } finally {
+      setIsGeneratingPdf(false);
     }
   };
 
-  // Step 4: Success
+  // Step 4: Premium Success Celebration
   if (step === 4 && orderResult) {
     return (
-      <div className="relative min-h-[calc(100vh-5rem)] flex items-center justify-center p-4 sm:p-6 w-full z-10">
-        
-        {/* Background Bursting Fireworks */}
+      <div className="relative min-h-[calc(100vh-5rem)] flex flex-col items-center justify-center w-full z-10 overflow-hidden py-10 px-4" style={{ background: 'linear-gradient(135deg, #0B1220 0%, #101827 40%, #1a1c2e 70%, #0B1220 100%)' }}>
+
+        {/* Animated Golden Particle Overlay */}
         <div className="fixed inset-0 pointer-events-none z-0 overflow-hidden">
+          {/* Subtle golden floating particles */}
+          {Array.from({ length: 20 }).map((_, i) => (
+            <motion.div
+              key={`particle-${i}`}
+              className="absolute rounded-full"
+              style={{
+                width: Math.random() * 4 + 2,
+                height: Math.random() * 4 + 2,
+                background: `radial-gradient(circle, rgba(212,167,44,${0.3 + Math.random() * 0.4}) 0%, transparent 70%)`,
+                left: `${Math.random() * 100}%`,
+                top: `${Math.random() * 100}%`,
+              }}
+              animate={{
+                y: [0, -(30 + Math.random() * 60), 0],
+                x: [0, (Math.random() - 0.5) * 40, 0],
+                opacity: [0.2, 0.7, 0.2],
+                scale: [0.8, 1.3, 0.8],
+              }}
+              transition={{
+                duration: 3 + Math.random() * 4,
+                repeat: Infinity,
+                delay: Math.random() * 3,
+                ease: 'easeInOut',
+              }}
+            />
+          ))}
+        </div>
+
+        {/* Background Bursting Fireworks */}
+        <div className="fixed inset-0 pointer-events-none z-[1] overflow-hidden">
           <AnimatePresence>
             {bursts.map(b => (
               <RealisticFirework key={b.id} x={b.x} y={b.y} type={b.type} onComplete={() => removeBurst(b.id)} />
@@ -404,139 +482,320 @@ export default function EnquiryPage() {
           </AnimatePresence>
         </div>
 
-        {/* Centered Success Card */}
-        <motion.div 
-          initial={{ scale: 0.92, opacity: 0 }} 
-          animate={{ scale: 1, opacity: 1 }} 
-          transition={{ type: 'spring', damping: 18, stiffness: 120 }}
-          className="relative z-10 w-full max-w-[600px] bg-[var(--surface)] text-[var(--text)] border-2 border-[var(--color-gold)]/30 rounded-3xl p-6 sm:p-10 shadow-2xl flex flex-col items-center text-center"
+        {/* Centered Success Card (Section 4 & 20) */}
+        <motion.div
+          initial={{ scale: 0.9, opacity: 0 }}
+          animate={{ scale: 1, opacity: 1 }}
+          transition={{ type: 'spring', damping: 20, stiffness: 100, delay: 0.05 }}
+          className="relative z-10 w-full max-w-[580px] mx-4 sm:mx-6 rounded-3xl overflow-hidden"
+          style={{
+            background: 'linear-gradient(135deg, rgba(16,24,39,0.95) 0%, rgba(30,41,59,0.97) 100%)',
+            border: '1.5px solid rgba(212,167,44,0.3)',
+            boxShadow: '0 0 60px rgba(212,167,44,0.08), 0 25px 50px rgba(0,0,0,0.5)',
+          }}
         >
-          {/* Success Icon */}
-          <motion.div 
-            initial={{ scale: 0 }} 
-            animate={{ scale: 1 }} 
-            transition={{ type: 'spring', bounce: 0.5, delay: 0.15 }}
-            className="w-20 h-20 bg-emerald-500/10 rounded-full flex items-center justify-center mb-5 border-2 border-emerald-500/30 text-emerald-500 shadow-[0_0_30px_rgba(16,185,129,0.15)]"
-          >
-            <CheckCircle2 size={40} className="text-emerald-500" />
-          </motion.div>
-          
-          {/* Thank You Title */}
-          <motion.h2 
-            initial={{ opacity: 0, y: 12 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            transition={{ delay: 0.25 }} 
-            className="text-2xl sm:text-3xl font-bold font-display mb-2 text-gradient-gold"
-          >
-            Thank You for Using JJ Crackers! 🪔
-          </motion.h2>
-          
-          {/* Subtitle */}
-          <motion.p 
-            initial={{ opacity: 0, y: 12 }} 
-            animate={{ opacity: 1, y: 0 }} 
-            transition={{ delay: 0.35 }} 
-            className="text-xs sm:text-sm text-[var(--text-muted)] max-w-md mx-auto mb-6"
-          >
-            We will contact you soon to finalize shipment and payment details.
-          </motion.p>
-          
-          {/* Order Reference + Net Payable + Status */}
-          <motion.div 
-            initial={{ opacity: 0 }} 
-            animate={{ opacity: 1 }} 
-            transition={{ delay: 0.45 }} 
-            className="w-full bg-[var(--surface-high)] border border-[var(--border)] rounded-2xl p-5 mb-5 space-y-4"
-          >
-            <div>
-              <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1">Order Reference</div>
-              <div className="text-2xl sm:text-3xl font-extrabold text-[var(--color-gold)] font-display tracking-wide">
-                {orderResult.order_number}
-              </div>
-            </div>
+          {/* Gold accent top border */}
+          <div style={{ height: '3px', background: 'linear-gradient(90deg, #D4AF37, #F97316, #C2410C, #D4AF37)' }} />
 
-            <div className="h-px bg-[var(--border)]/50 w-2/3 mx-auto" />
-
-            <div>
-              <div className="text-[10px] font-bold text-[var(--text-muted)] uppercase tracking-widest mb-1">Net Payable</div>
-              <div className="text-xl sm:text-2xl font-black text-[var(--text)]">
-                ₹{orderResult.total_amount?.toLocaleString('en-IN')}
-              </div>
-            </div>
-
-            <div className="h-px bg-[var(--border)]/50 w-2/3 mx-auto" />
-
-            {/* CONFIRMED Badge — Perfectly Centered */}
-            <div className="flex items-center justify-center pt-1">
-              <span className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-600 dark:text-emerald-400 text-xs font-bold tracking-wider" style={{ lineHeight: 1 }}>
-                <span className="w-2 h-2 rounded-full bg-emerald-500 dark:bg-emerald-400 shrink-0 shadow-[0_0_6px_rgba(52,211,153,0.8)]" style={{ display: 'inline-block', verticalAlign: 'middle' }} />
-                <span style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1 }}>CONFIRMED</span>
-              </span>
-            </div>
-          </motion.div>
-
-          {/* Receipt Generation Status */}
-          <div className="w-full mb-5 space-y-2">
-            {receiptStatus === 'generating' && (
-              <div className="flex items-center justify-center gap-2.5 p-3 bg-[var(--surface-high)] border border-[var(--border)] rounded-xl text-xs text-[var(--text-muted)]">
-                <div className="w-4 h-4 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin shrink-0" />
-                <span>Generating order estimate PDF...</span>
-              </div>
-            )}
-            {receiptStatus === 'downloaded' && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-2">
-                <CheckCircle2 size={15} className="shrink-0 text-emerald-500" />
-                <span><strong>Estimate Downloaded!</strong> Your PDF has been saved and opened.</span>
-              </div>
-            )}
-            {receiptStatus === 'failed' && (
-              <div className="p-3 bg-rose-500/10 border border-rose-500/30 rounded-xl text-xs text-rose-500 dark:text-rose-300 flex items-center justify-center gap-2">
-                <AlertCircle size={15} className="shrink-0 text-rose-500" />
-                <span>Could not auto-download. Click &quot;Download Estimate&quot; below.</span>
-              </div>
-            )}
-
-            {Boolean(customerInfo.email || orderResult?.customer_email) && emailStatus === 'sending' && (
-              <div className="flex items-center justify-center gap-2.5 p-3 bg-[var(--surface-high)] border border-[var(--border)] rounded-xl text-xs text-[var(--text-muted)]">
-                <div className="w-4 h-4 border-2 border-[var(--color-gold)] border-t-transparent rounded-full animate-spin shrink-0" />
-                <span>Emailing order estimate...</span>
-              </div>
-            )}
-            {Boolean(customerInfo.email || orderResult?.customer_email) && emailStatus === 'sent' && (
-              <div className="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl text-xs text-emerald-600 dark:text-emerald-400 flex items-center justify-center gap-2">
-                <CheckCircle2 size={15} className="shrink-0 text-emerald-500" />
-                <span>Estimate emailed to <strong>{customerInfo.email || orderResult?.customer_email}</strong></span>
-              </div>
-            )}
-          </div>
-
-          {/* Action Buttons */}
-          <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-            <motion.button 
-              onClick={handleDownloadReceipt} 
-              whileHover={{ scale: 1.02 }} 
-              whileTap={{ scale: 0.97 }}
-              className="py-3.5 px-5 rounded-2xl bg-[var(--surface-high)] border border-[var(--border)] text-[var(--text)] font-bold text-sm flex items-center justify-center gap-2 hover:border-[var(--color-gold)] hover:text-[var(--color-gold)] transition-all"
+          <div className="p-6 sm:p-10 flex flex-col items-center text-center">
+            {/* Success Check Animation (0.15s) */}
+            <motion.div
+              initial={{ scale: 0, rotate: -30 }}
+              animate={{ scale: 1, rotate: 0 }}
+              transition={{ type: 'spring', bounce: 0.55, delay: 0.15 }}
+              className="w-[72px] h-[72px] rounded-full flex items-center justify-center mb-4"
+              style={{
+                background: 'radial-gradient(circle, rgba(16,185,129,0.15) 0%, rgba(16,185,129,0.05) 100%)',
+                border: '2px solid rgba(16,185,129,0.4)',
+                boxShadow: '0 0 30px rgba(16,185,129,0.12)',
+              }}
             >
-              <Download size={16} /> Download Estimate
-            </motion.button>
+              <CheckCircle2 size={36} className="text-emerald-400" />
+            </motion.div>
 
-            <Link href="/products" className="block">
-              <motion.button 
-                whileHover={{ scale: 1.02 }} 
-                whileTap={{ scale: 0.97 }}
-                className="w-full py-3.5 px-5 rounded-2xl bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-black text-sm flex items-center justify-center gap-2 shadow-md hover:shadow-[0_0_15px_rgba(212,175,55,0.3)] transition-all"
-              >
-                Continue Shopping <ArrowRight size={16} />
-              </motion.button>
-            </Link>
-          </div>
+            {/* ORDER CONFIRMED Title (0.25s) */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.25, duration: 0.35 }}
+              className="text-xs sm:text-sm font-extrabold uppercase tracking-[0.25em] mb-1"
+              style={{ color: '#4ADE80' }}
+            >
+              ✓ ORDER CONFIRMED
+            </motion.div>
 
-          {/* Bottom Brand / Support */}
-          <div className="pt-4 border-t border-[var(--border)]/50 w-full text-center">
-            <p className="text-[11px] text-[var(--text-muted)] font-medium">
-              JJ CRACKERS · Sivakasi Direct Factory Outlet · <a href="tel:+917092300252" className="text-[var(--color-gold)] hover:underline font-bold">+91 70923 00252</a>
-            </p>
+            {/* Thank You Title (0.35s) */}
+            <motion.h2
+              initial={{ opacity: 0, y: 14 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.35, duration: 0.4 }}
+              className="text-xl sm:text-2xl font-bold font-display mb-1"
+              style={{ color: '#F2C14E', letterSpacing: '0.5px' }}
+            >
+              THANK YOU FOR CHOOSING JJ CRACKERS!
+            </motion.h2>
+
+            {/* Subtitle */}
+            <motion.p
+              initial={{ opacity: 0, y: 10 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.4 }}
+              className="text-xs sm:text-sm mb-6"
+              style={{ color: 'rgba(148,163,184,0.9)' }}
+            >
+              Your order has been successfully placed.
+            </motion.p>
+
+            {/* Order Info Card */}
+            <motion.div
+              initial={{ opacity: 0, y: 12 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.45, duration: 0.4 }}
+              className="w-full rounded-2xl p-5 mb-5 space-y-4"
+              style={{
+                background: 'rgba(30,41,59,0.7)',
+                border: '1px solid rgba(148,163,184,0.15)',
+              }}
+            >
+              {/* Order ID */}
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(148,163,184,0.7)' }}>ORDER ID</div>
+                <div className="text-2xl sm:text-3xl font-extrabold font-display tracking-wide" style={{ color: '#F2C14E' }}>
+                  {orderResult.order_number}
+                </div>
+              </div>
+
+              <div style={{ height: '1px', background: 'rgba(148,163,184,0.12)', width: '60%', margin: '0 auto' }} />
+
+              {/* Net Payable */}
+              <div>
+                <div className="text-[10px] font-bold uppercase tracking-[0.2em] mb-1.5" style={{ color: 'rgba(148,163,184,0.7)' }}>NET PAYABLE</div>
+                <div className="text-xl sm:text-2xl font-black" style={{ color: '#FFFFFF' }}>
+                  ₹{orderResult.total_amount?.toLocaleString('en-IN')}
+                </div>
+              </div>
+
+              <div style={{ height: '1px', background: 'rgba(148,163,184,0.12)', width: '60%', margin: '0 auto' }} />
+
+              {/* CONFIRMED Badge — Perfectly Centered (Section 21) */}
+              <div className="flex items-center justify-center pt-1">
+                <span
+                  className="inline-flex items-center justify-center gap-2 px-5 py-2 rounded-full text-xs font-bold tracking-wider"
+                  style={{
+                    lineHeight: 1,
+                    background: 'rgba(16,185,129,0.12)',
+                    border: '1px solid rgba(16,185,129,0.4)',
+                    color: '#4ADE80',
+                  }}
+                >
+                  <span
+                    className="shrink-0"
+                    style={{
+                      display: 'inline-block',
+                      width: '8px',
+                      height: '8px',
+                      borderRadius: '50%',
+                      background: '#4ADE80',
+                      boxShadow: '0 0 6px rgba(74,222,128,0.8)',
+                      verticalAlign: 'middle',
+                    }}
+                  />
+                  <span style={{ display: 'inline-block', verticalAlign: 'middle', lineHeight: 1 }}>CONFIRMED</span>
+                </span>
+              </div>
+            </motion.div>
+
+            {/* Subtle Non-Blocking Estimate Status (Section 12) */}
+            <motion.div
+              initial={{ opacity: 0 }}
+              animate={{ opacity: 1 }}
+              transition={{ delay: 0.5 }}
+              className="w-full mb-5 flex flex-col items-center gap-1.5"
+            >
+              {receiptStatus === 'generating' && (
+                <div className="inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-medium" style={{ background: 'rgba(30,41,59,0.7)', border: '1px solid rgba(212,167,44,0.25)', color: '#F2C14E' }}>
+                  <div className="w-3.5 h-3.5 border-2 border-[#D4AF37] border-t-transparent rounded-full animate-spin shrink-0" />
+                  <span>Estimate preparing...</span>
+                </div>
+              )}
+              {receiptStatus === 'downloaded' && (
+                <div className="inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full text-xs font-semibold" style={{ background: 'rgba(16,185,129,0.12)', border: '1px solid rgba(16,185,129,0.35)', color: '#4ADE80' }}>
+                  <CheckCircle2 size={14} className="shrink-0" style={{ color: '#10B981' }} />
+                  <span>Estimate Ready ✓</span>
+                </div>
+              )}
+              {receiptStatus === 'failed' && (
+                <div className="inline-flex items-center justify-center gap-2 px-3.5 py-1.5 rounded-full text-xs" style={{ background: 'rgba(244,63,94,0.1)', border: '1px solid rgba(244,63,94,0.3)', color: '#FB7185' }}>
+                  <AlertCircle size={14} className="shrink-0" />
+                  <span>Estimate could not be opened automatically. Click below.</span>
+                </div>
+              )}
+
+              {(() => {
+                const confirmedEmail = (customerInfo.email || orderResult?.customer_email || '').trim();
+                const hasCustomerEmail = Boolean(
+                  confirmedEmail &&
+                  confirmedEmail.includes('@') &&
+                  confirmedEmail.toLowerCase() !== 'n/a'
+                );
+
+                if (!hasCustomerEmail) return null;
+
+                if (emailStatus === 'sending') {
+                  return (
+                    <span className="text-[11px]" style={{ color: 'rgba(148,163,184,0.7)' }}>
+                      Emailing estimate in background...
+                    </span>
+                  );
+                }
+
+                if (emailStatus === 'sent') {
+                  return (
+                    <span className="text-[11px]" style={{ color: 'rgba(74,222,128,0.9)' }}>
+                      Estimate emailed to <strong>{confirmedEmail}</strong> ✓
+                    </span>
+                  );
+                }
+
+                return null;
+              })()}
+            </motion.div>
+
+            {/* Action Buttons (Section 17 & 20) */}
+            <motion.div
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: 0.55 }}
+              className="w-full flex flex-col items-center gap-3 mb-6"
+            >
+              <div className="w-full grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <motion.button
+                  onClick={handleOpenReceipt}
+                  whileHover={{ scale: 1.02 }}
+                  whileTap={{ scale: 0.97 }}
+                  className="w-full py-3.5 px-5 rounded-2xl font-black text-sm flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
+                  style={{
+                    background: 'linear-gradient(90deg, #D4AF37, #C8981F)',
+                    color: '#1a1400',
+                    boxShadow: '0 4px 14px rgba(212,175,55,0.25)',
+                  }}
+                >
+                  <FileText size={16} /> OPEN ORDER ESTIMATE
+                </motion.button>
+
+                <Link href="/products" className="block w-full">
+                  <motion.button
+                    whileHover={{ scale: 1.02 }}
+                    whileTap={{ scale: 0.97 }}
+                    className="w-full py-3.5 px-5 rounded-2xl font-bold text-sm flex items-center justify-center gap-2 transition-all cursor-pointer"
+                    style={{
+                      background: 'rgba(30,41,59,0.8)',
+                      border: '1px solid rgba(148,163,184,0.25)',
+                      color: '#FFFFFF',
+                    }}
+                  >
+                    Continue Shopping <ArrowRight size={16} />
+                  </motion.button>
+                </Link>
+              </div>
+
+              {receiptStatus === 'downloaded' && (
+                <button
+                  onClick={handleDownloadAgain}
+                  className="mt-1 text-xs text-amber-300/80 hover:text-amber-200 underline flex items-center gap-1.5 transition-colors cursor-pointer"
+                >
+                  <Download size={13} /> Download Again (PDF)
+                </button>
+              )}
+            </motion.div>
+
+            {/* Diya Row — Lower part of success window (Section 6 & 22) */}
+            <div className="flex justify-center items-end gap-6 sm:gap-12 my-3 pointer-events-none">
+              {[0, 1, 2, 3].map((i) => (
+                <motion.div
+                  key={`diya-${i}`}
+                  className="relative flex flex-col items-center"
+                  initial={{ opacity: 0, y: 15 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: 0.3 + i * 0.2, duration: 0.4 }}
+                >
+                  {/* Diya flame */}
+                  <motion.div
+                    className="relative w-5 h-7 mb-[-2px]"
+                    initial={{ opacity: 0, scale: 0 }}
+                    animate={{ opacity: 1, scale: 1 }}
+                    transition={{ delay: 0.5 + i * 0.2, duration: 0.35, type: 'spring' }}
+                  >
+                    {/* Flame glow */}
+                    <motion.div
+                      className="absolute inset-0 rounded-full"
+                      style={{
+                        background: 'radial-gradient(circle, rgba(255,200,50,0.6) 0%, rgba(255,140,0,0.3) 40%, transparent 70%)',
+                        filter: 'blur(6px)',
+                        width: '24px',
+                        height: '28px',
+                        left: '-2px',
+                        top: '-4px',
+                      }}
+                      animate={{
+                        scale: [1, 1.15, 1],
+                        opacity: [0.6, 0.9, 0.6],
+                      }}
+                      transition={{ duration: 1.2 + Math.random() * 0.5, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+                    {/* Flame shape (teardrop) */}
+                    <motion.div
+                      className="absolute left-1/2 bottom-0"
+                      style={{
+                        width: '10px',
+                        height: '16px',
+                        transform: 'translateX(-50%)',
+                        background: 'linear-gradient(to top, #FF6B00 0%, #FFAA00 40%, #FFE066 80%, #FFF8DC 100%)',
+                        borderRadius: '50% 50% 40% 40% / 70% 70% 30% 30%',
+                        boxShadow: '0 0 8px rgba(255,170,0,0.8), 0 0 20px rgba(255,140,0,0.4)',
+                      }}
+                      animate={{
+                        scaleX: [1, 0.85, 1.1, 1],
+                        scaleY: [1, 1.08, 0.95, 1],
+                      }}
+                      transition={{ duration: 0.8 + Math.random() * 0.4, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+                  </motion.div>
+                  {/* Diya body (cup shape via SVG) */}
+                  <svg width="34" height="18" viewBox="0 0 36 20" fill="none">
+                    <path d="M4 4 C4 4 6 0 18 0 C30 0 32 4 32 4 L30 16 C30 18 26 20 18 20 C10 20 6 18 6 16 L4 4Z" fill="url(#diyaGrad)" stroke="#B8860B" strokeWidth="0.8"/>
+                    <ellipse cx="18" cy="4" rx="14" ry="3.5" fill="#DAA520" opacity="0.5"/>
+                    <defs>
+                      <linearGradient id="diyaGrad" x1="18" y1="0" x2="18" y2="20">
+                        <stop offset="0%" stopColor="#DAA520"/>
+                        <stop offset="50%" stopColor="#CD853F"/>
+                        <stop offset="100%" stopColor="#8B4513"/>
+                      </linearGradient>
+                    </defs>
+                  </svg>
+                  {/* Warm glow beneath diya */}
+                  <motion.div
+                    className="absolute -bottom-2 left-1/2 -translate-x-1/2"
+                    style={{
+                      width: '46px',
+                      height: '14px',
+                      background: 'radial-gradient(ellipse, rgba(255,170,0,0.25) 0%, transparent 70%)',
+                      filter: 'blur(4px)',
+                    }}
+                    initial={{ opacity: 0 }}
+                    animate={{ opacity: [0.3, 0.6, 0.3] }}
+                    transition={{ delay: 0.8 + i * 0.2, duration: 2, repeat: Infinity }}
+                  />
+                </motion.div>
+              ))}
+            </div>
+
+            {/* Bottom Brand / Support */}
+            <div className="pt-3 w-full text-center" style={{ borderTop: '1px solid rgba(148,163,184,0.12)' }}>
+              <p className="text-[11px] font-medium" style={{ color: 'rgba(148,163,184,0.6)' }}>
+                JJ CRACKERS · Sivakasi Direct Factory Outlet · <a href="tel:+917092300252" className="hover:underline font-bold" style={{ color: '#D4AF37' }}>+91 70923 00252</a>
+              </p>
+            </div>
           </div>
         </motion.div>
       </div>
