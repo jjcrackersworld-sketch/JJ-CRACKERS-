@@ -80,8 +80,11 @@
     padding: 0;
   }
 
+  /* ─── 120Hz High-Refresh GPU Acceleration & Zero-Lag Scrolling ─── */
   html {
     scroll-behavior: smooth;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
   }
 
   body {
@@ -90,9 +93,19 @@
     font-family: var(--font-body);
     line-height: 1.6;
     overflow-x: hidden;
-    transition: background-color 0.4s ease, color 0.4s ease;
+    transition: background-color 0.3s ease, color 0.3s ease;
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* GPU Compositing for silky 60fps/120fps interactions without jank */
+  .glass-card,
+  .glass-premium,
+  button,
+  a {
+    transform: translateZ(0);
+    backface-visibility: hidden;
   }
 
   /* ─── Premium Custom Scrollbar ─── */

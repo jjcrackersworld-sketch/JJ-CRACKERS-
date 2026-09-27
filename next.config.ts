@@ -15,7 +15,29 @@ const nextConfig: NextConfig = {
     ],
   },
   experimental: {
-    optimizePackageImports: ['lucide-react', 'framer-motion', 'canvas-confetti'],
+    optimizePackageImports: ['lucide-react', 'framer-motion', 'canvas-confetti', 'clsx', 'tailwind-merge', '@supabase/supabase-js'],
+  },
+  async headers() {
+    return [
+      {
+        source: '/logo/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400, stale-while-revalidate=604800',
+          },
+        ],
+      },
+      {
+        source: '/hero/:path*',
+        headers: [
+          {
+            key: 'Cache-Control',
+            value: 'public, max-age=86400, stale-while-revalidate=604800',
+          },
+        ],
+      },
+    ];
   },
   async rewrites() {
     return [
