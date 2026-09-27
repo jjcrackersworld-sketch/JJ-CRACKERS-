@@ -18,6 +18,9 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase.from('products').select('*').eq('id', id).single();
     if (error) throw error;
+    if (data && data.image_url && typeof data.image_url === 'string' && data.image_url.startsWith('data:image')) {
+      data.image_url = `/api/product-image/${data.id}`;
+    }
     return NextResponse.json(data);
   } catch {
     return NextResponse.json({ error: 'Product not found' }, { status: 404 });
@@ -48,7 +51,7 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     if (body.category !== undefined) updateData.category = body.category;
     if (body.price !== undefined) updateData.price = Number(body.price);
     if (body.mrp !== undefined) updateData.mrp = Number(body.mrp);
-    if (body.image_url !== undefined) updateData.image_url = body.image_url;
+    if (body.image_url !== undefined && !body.image_url.startsWith('/api/product-image/')) updateData.image_url = body.image_url;
     if (body.in_stock !== undefined) updateData.in_stock = Boolean(body.in_stock);
     if (body.is_featured !== undefined) updateData.is_featured = Boolean(body.is_featured);
 

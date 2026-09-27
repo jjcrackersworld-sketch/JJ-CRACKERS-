@@ -90,8 +90,15 @@ export async function GET(req: Request) {
       responseHeaders['Cache-Control'] = 'public, s-maxage=30, stale-while-revalidate=600';
     }
 
+    const sanitizedProducts = (data || []).map((p: any) => {
+      if (p.image_url && typeof p.image_url === 'string' && p.image_url.startsWith('data:image')) {
+        return { ...p, image_url: `/api/product-image/${p.id}` };
+      }
+      return p;
+    });
+
     return NextResponse.json({
-      products: data || [],
+      products: sanitizedProducts,
       total,
       page,
       limit,

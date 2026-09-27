@@ -487,31 +487,41 @@ export default function AdminPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [o, p, e, m, c, t, s, b, cats, slds] = await Promise.all([
+      // 1. Core dashboard data needed immediately for Command Hub and layout
+      const [o, s, cats, p] = await Promise.all([
         adminFetch('/api/orders').then(r => r.json()).catch(() => []),
+        adminFetch('/api/settings?admin=true').then(r => r.json()).catch(() => ({})),
+        adminFetch('/api/categories?admin=true').then(r => r.json()).catch(() => []),
         adminFetch('/api/products?admin=true&limit=500').then(r => r.json()).catch(() => ({ products: [] })),
+      ]);
+      setOrders(Array.isArray(o) ? o : []);
+      if (s && Object.keys(s).length > 0) setSettings(s);
+      setCategories(Array.isArray(cats) ? cats : []);
+      setProducts(Array.isArray(p) ? p : (p.products || []));
+      // Unlock UI immediately — Command Hub is ready!
+      setLoading(false);
+
+      // 2. Secondary tab data fetched asynchronously in background without blocking screen
+      Promise.all([
         adminFetch('/api/enquiries').then(r => r.json()).catch(() => []),
         adminFetch('/api/contact').then(r => r.json()).catch(() => []),
         adminFetch('/api/combos').then(r => r.json()).catch(() => []),
         adminFetch('/api/admin/tracking').then(r => r.json()).catch(() => ({ error_logs: [], analytics_events: [] })),
-        adminFetch('/api/settings?admin=true').then(r => r.json()).catch(() => ({})),
         adminFetch('/api/bank-accounts').then(r => r.json()).catch(() => []),
-        adminFetch('/api/categories?admin=true').then(r => r.json()).catch(() => []),
         adminFetch('/api/sliders').then(r => r.json()).catch(() => []),
-      ]);
-      setOrders(Array.isArray(o) ? o : []);
-      setProducts(Array.isArray(p) ? p : (p.products || []));
-      setEnquiries(Array.isArray(e) ? e : []);
-      setMessages(Array.isArray(m) ? m : []);
-      setCombos(Array.isArray(c) ? c : []);
-      setErrorLogs(t.error_logs || []);
-      setAnalyticsEvents(t.analytics_events || []);
-      if (s && Object.keys(s).length > 0) setSettings(s);
-      setBankAccounts(Array.isArray(b) ? b : []);
-      setCategories(Array.isArray(cats) ? cats : []);
-      setSliders(Array.isArray(slds) ? slds : []);
+      ]).then(([e, m, c, t, b, slds]) => {
+        setEnquiries(Array.isArray(e) ? e : []);
+        setMessages(Array.isArray(m) ? m : []);
+        setCombos(Array.isArray(c) ? c : []);
+        setErrorLogs(t?.error_logs || []);
+        setAnalyticsEvents(t?.analytics_events || []);
+        setBankAccounts(Array.isArray(b) ? b : []);
+        setSliders(Array.isArray(slds) ? slds : []);
+      }).catch(err => console.error('Error fetching secondary admin data:', err));
+
+      return;
     } catch (err) { 
-      console.error(err); 
+      console.error('Error fetching core admin data:', err); 
     }
     setLoading(false);
   };
