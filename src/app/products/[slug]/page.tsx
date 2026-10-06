@@ -119,14 +119,12 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
           {/* Left Column: Image */}
           <div className="relative w-full aspect-square rounded-3xl bg-[var(--surface-high)] overflow-hidden border border-[var(--border)]/40 shadow-2xl">
             {product.image_url ? (
-              <Image
+              <img
                 src={product.image_url}
                 alt={`${product.name_en} — JJ Crackers (Jegajothi Crackers Sivakasi)`}
-                fill
-                priority
-                unoptimized
-                sizes="(max-width: 768px) 100vw, 50vw"
-                className="object-cover"
+                className="w-full h-full object-cover"
+                loading="eager"
+                decoding="async"
               />
             ) : (
               <div className="w-full h-full flex items-center justify-center">

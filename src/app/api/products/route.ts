@@ -92,7 +92,7 @@ export async function GET(req: Request) {
 
     const sanitizedProducts = (data || []).map((p: any) => ({
       ...p,
-      image_url: `/api/product-image/${p.id}`,
+      image_url: `/product-assets/${p.id}.jpg`,
     }));
 
     return NextResponse.json({

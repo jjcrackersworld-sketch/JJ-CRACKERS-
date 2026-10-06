@@ -115,7 +115,7 @@ export async function getProducts(): Promise<Product[]> {
 
     const sanitized: Product[] = (data || []).map((p: any) => ({
       ...p,
-      image_url: `/api/product-image/${p.id}`,
+      image_url: `/product-assets/${p.id}.jpg`,
     }));
 
     cachedProducts = sanitized;
