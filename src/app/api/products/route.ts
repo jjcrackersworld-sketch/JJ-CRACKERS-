@@ -57,7 +57,7 @@ export async function GET(req: Request) {
 
     let query = supabase
       .from('products')
-      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order', { count: 'exact' });
+      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,in_stock,is_featured,is_eco_friendly,sort_order', { count: 'exact' });
 
     if (category && category !== 'all') {
       query = query.eq('category', category);
@@ -90,12 +90,10 @@ export async function GET(req: Request) {
       responseHeaders['Cache-Control'] = 'public, s-maxage=30, stale-while-revalidate=600';
     }
 
-    const sanitizedProducts = (data || []).map((p: any) => {
-      if (p.image_url && typeof p.image_url === 'string' && p.image_url.startsWith('data:image')) {
-        return { ...p, image_url: `/api/product-image/${p.id}` };
-      }
-      return p;
-    });
+    const sanitizedProducts = (data || []).map((p: any) => ({
+      ...p,
+      image_url: `/api/product-image/${p.id}`,
+    }));
 
     return NextResponse.json({
       products: sanitizedProducts,

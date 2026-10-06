@@ -1,8 +1,8 @@
 import { getCategories, getProducts } from '@/lib/db';
 import { ProductCatalogClient } from '@/components/products/ProductCatalogClient';
 
-// Dynamic server rendering ensures real-time catalog updates and avoids oversized ISR static HTML payload
-export const dynamic = 'force-dynamic';
+// Cache page with Incremental Static Regeneration (ISR) for instant TTFB response
+export const revalidate = 60;
 
 export default async function ProductsPage() {
   // Fetch initial data directly on the server to optimize FCP, LCP and SEO

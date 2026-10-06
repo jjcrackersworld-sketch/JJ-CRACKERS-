@@ -49,7 +49,7 @@ export default function AboutPage() {
           
           <FadeIn delay={0.4}>
             <p className="text-xl text-[var(--text-muted)] max-w-3xl mx-auto leading-relaxed font-light">
-              Born in the heart of Sivakasi, refined by time, and celebrated across the nation. Jegajothi Crackers has been 
+              Born in the heart of Sivakasi, refined by time, and celebrated across the nation. JJ Crackers (Jegajothi Crackers) has been 
               crafting moments of joy since 2015.
             </p>
           </FadeIn>
@@ -82,7 +82,7 @@ export default function AboutPage() {
             </p>
             <p className="text-lg text-[var(--text)]/60 leading-relaxed mb-8">
               What started as a small workshop has grown into one of Sivakasi&apos;s most trusted fireworks manufacturers. 
-              Today, JJ Crackers (Jegajothi) serves over 10,000 families across India with 500+ premium products, 
+              Today, JJ Crackers (also known as Jegajothi Crackers) serves over 10,000 families across India with 500+ premium products, 
               maintaining the same passion for quality and safety that defined our founder&apos;s first sparkler.
             </p>
             <div className="flex items-center gap-4">
@@ -101,10 +101,10 @@ export default function AboutPage() {
       <section className="py-24">
         <div className="max-w-7xl mx-auto px-6 grid grid-cols-2 md:grid-cols-4 gap-12">
           {[
-            { value: 11, suffix: '+', label: 'Years of Excellence', icon: Clock },
-            { value: 10000, suffix: '+', label: 'Happy Families', icon: Users },
-            { value: 500, suffix: '+', label: 'Premium Products', icon: Factory },
-            { value: 100, suffix: '%', label: 'Safety Certified', icon: Shield },
+            { value: 11, suffix: '+', label: 'Years of Experience', icon: Clock },
+            { value: 20, suffix: '+', label: 'Product Categories', icon: Users },
+            { value: 500, suffix: '+', label: 'Product Varieties', icon: Factory },
+            { value: 100, suffix: '%', label: 'Factory Direct', icon: Shield },
           ].map((s, i) => (
             <ScrollFadeInUp key={s.label} delay={i * 0.1} className="text-center group">
               <div className="w-20 h-20 rounded-full bg-white/5 text-[var(--color-gold)] flex items-center justify-center mx-auto mb-6 border border-white/10 group-hover:shadow-[0_0_30px_rgba(212,175,55,0.2)] transition-all">

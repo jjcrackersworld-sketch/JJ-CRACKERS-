@@ -77,12 +77,19 @@ export async function getCategories() {
   }
 }
 
-// In-memory cache for ultra-fast (<5ms) catalog serving
+// In-memory cache for ultra-fast (<1ms) catalog serving
 let cachedProducts: Product[] | null = null;
 let lastProductsFetchTime = 0;
-const PRODUCTS_CACHE_TTL = 30000; // 30 seconds
+const PRODUCTS_CACHE_TTL = 300000; // 5 minutes cache for blazing speed
 
-export async function getProducts() {
+export function clearProductsCache() {
+  cachedProducts = null;
+  lastProductsFetchTime = 0;
+  cachedCategories = null;
+  lastCategoriesFetchTime = 0;
+}
+
+export async function getProducts(): Promise<Product[]> {
   const now = Date.now();
   if (cachedProducts && now - lastProductsFetchTime < PRODUCTS_CACHE_TTL) {
     return cachedProducts;
@@ -99,21 +106,17 @@ export async function getProducts() {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('products')
-      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order')
+      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,in_stock,is_featured,is_eco_friendly,sort_order')
       .order('sort_order', { ascending: true })
       .order('category', { ascending: true })
       .order('price', { ascending: true })
       .limit(1000);
     if (error) throw error;
 
-    const sanitized = (data || []).map((p: any) => {
-      // Offload giant raw base64 data URLs to dedicated streaming endpoint
-      // This reduces HTML and JSON payload from 24.4 MB to <100 KB!
-      if (p.image_url && p.image_url.startsWith('data:image')) {
-        return { ...p, image_url: `/api/product-image/${p.id}` };
-      }
-      return p;
-    });
+    const sanitized: Product[] = (data || []).map((p: any) => ({
+      ...p,
+      image_url: `/api/product-image/${p.id}`,
+    }));
 
     cachedProducts = sanitized;
     lastProductsFetchTime = now;
@@ -122,4 +125,43 @@ export async function getProducts() {
     console.error('Failed to fetch products:', err);
     return cachedProducts || [];
   }
+}
+
+export async function getProductBySlug(slug: string): Promise<Product | null> {
+  const products = await getProducts();
+  const decoded = decodeURIComponent(slug);
+  const found = products.find(p => p.slug === decoded || p.id === decoded || p.slug === slug);
+  if (found) return found;
+
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+  const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+  if (!supabaseUrl || !supabaseKey) return null;
+
+  try {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data } = await supabase
+      .from('products')
+      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order')
+      .or(`slug.eq.${decoded},id.eq.${decoded},slug.eq.${slug}`)
+      .limit(1)
+      .maybeSingle();
+
+    if (data) {
+      let img = data.image_url;
+      if (!img || img.startsWith('data:image')) {
+        img = `/api/product-image/${data.id}`;
+      }
+      return { ...data, image_url: img } as unknown as Product;
+    }
+  } catch (err) {
+    console.error('Failed to get product by slug:', err);
+  }
+  return null;
+}
+
+export async function getRelatedProducts(category: string, currentId: string, limit = 4): Promise<Product[]> {
+  const products = await getProducts();
+  return products
+    .filter(p => p.category === category && p.id !== currentId)
+    .slice(0, limit);
 }

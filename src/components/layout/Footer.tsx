@@ -3,21 +3,27 @@
 import Link from 'next/link';
 import Image from 'next/image';
 import { motion } from 'framer-motion';
-import { Mail, Phone, MapPin, ArrowUp, Sparkles, Send } from 'lucide-react';
+import { Mail, Phone, MapPin, ArrowUp, Sparkles, Send, Instagram } from 'lucide-react';
 import { useState } from 'react';
 
 const footerLinks = {
   shop: [
     { label: 'All Products', href: '/products' },
     { label: 'Combo Packs', href: '/combos' },
-    { label: 'New Arrivals', href: '/products?category=new' },
-    { label: 'Best Sellers', href: '/products?category=best' },
+    { label: 'Gift Boxes', href: '/cracker-gift-boxes' },
+    { label: 'Combo Specials', href: '/cracker-combo-packs' },
+  ],
+  explore: [
+    { label: 'Sivakasi Crackers', href: '/sivakasi-crackers' },
+    { label: 'Crackers Online', href: '/crackers-online' },
+    { label: 'Diwali Crackers', href: '/diwali-crackers' },
+    { label: 'Sivakasi Fireworks', href: '/sivakasi-fireworks' },
   ],
   company: [
     { label: 'About Us', href: '/about' },
     { label: 'Contact Us', href: '/contact' },
     { label: 'Safety Guidelines', href: '/safety' },
-    { label: 'Enquiry Cart', href: '/enquiry' },
+    { label: 'Order Enquiry', href: '/enquiry' },
   ],
   legal: [
     { label: 'Privacy Policy', href: '/privacy' },
@@ -28,6 +34,7 @@ const footerLinks = {
 
 const socialLinks = [
   { icon: Phone, label: 'Call Us', href: 'tel:+917092300252', color: 'hover:text-[#E4405F] hover:border-[#E4405F]' },
+  { icon: Instagram, label: 'Instagram', href: 'https://www.instagram.com/jjcrackers_world/', color: 'hover:text-[#E1306C] hover:border-[#E1306C]' },
   { icon: MapPin, label: 'Visit Factory', href: 'https://maps.app.goo.gl/pi2T1vsVV5dzjZpv9', color: 'hover:text-[#1877F2] hover:border-[#1877F2]' },
   { icon: Mail, label: 'Email', href: 'mailto:jjcrackersworld@gmail.com', color: 'hover:text-[var(--color-gold)] hover:border-[var(--color-gold)]' },
 ];
@@ -54,22 +61,20 @@ export function Footer() {
       <div className="absolute bottom-0 left-1/2 -translate-x-1/2 w-[800px] h-[400px] bg-[var(--color-gold)]/5 rounded-full blur-[150px] pointer-events-none" />
 
       <div className="relative max-w-[1400px] mx-auto px-6 pt-20 pb-10">
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-5 gap-12 mb-16">
+        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-6 gap-8 mb-16">
           <div className="lg:col-span-2">
             <Link href="/" suppressHydrationWarning className="inline-flex items-center gap-3 mb-6 group">
               <div className="relative w-12 h-12 overflow-hidden flex-shrink-0">
                 <Image src="/logo/logo.png" alt="JJ Crackers" fill className="object-contain dark:brightness-[0.9] dark:contrast-[1.1] transition-all duration-300" sizes="48px" />
               </div>
               <div className="flex flex-col">
-                <span className="font-display font-bold text-2xl tracking-tight leading-none">Jegajothi Crackers</span>
+                <span className="font-display font-bold text-2xl tracking-tight leading-none">JJ Crackers · Jegajothi</span>
                 <span className="text-xs text-[var(--color-gold)] font-semibold uppercase tracking-wider mt-0.5">ஜெகஜோதி பட்டாசுகள்</span>
               </div>
             </Link>
             <p className="text-[var(--text-muted)] max-w-sm mb-6 leading-relaxed">
               Sivakasi&apos;s most trusted fireworks manufacturer since 2015. Lighting up millions of homes with uncompromising safety and premium quality.
             </p>
-
-            {/* Removed Newsletter */}
 
             <div className="flex gap-3">
               {socialLinks.map((social) => (
@@ -88,6 +93,19 @@ export function Footer() {
             </h4>
             <ul className="space-y-3">
               {footerLinks.shop.map((link) => (
+                <li key={link.label}><Link href={link.href} className="text-[var(--text-muted)] hover:text-[var(--color-gold)] transition-colors text-sm inline-flex items-center gap-1 group">
+                  <span className="w-0 group-hover:w-2 h-px bg-[var(--color-gold)] transition-all duration-300" />{link.label}
+                </Link></li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <h4 className="font-bold text-[var(--text)] mb-6 uppercase text-xs tracking-[0.2em] flex items-center gap-2">
+              <Sparkles size={12} className="text-[var(--color-gold)]" /> Discover
+            </h4>
+            <ul className="space-y-3">
+              {footerLinks.explore.map((link) => (
                 <li key={link.label}><Link href={link.href} className="text-[var(--text-muted)] hover:text-[var(--color-gold)] transition-colors text-sm inline-flex items-center gap-1 group">
                   <span className="w-0 group-hover:w-2 h-px bg-[var(--color-gold)] transition-all duration-300" />{link.label}
                 </Link></li>
@@ -127,7 +145,7 @@ export function Footer() {
         </div>
 
         <div className="flex flex-col md:flex-row justify-between items-center gap-6 text-[var(--text-muted)] text-xs font-medium">
-          <p suppressHydrationWarning>© {currentYear} Jegajothi Crackers (JJ Crackers). All rights reserved.</p>
+          <p suppressHydrationWarning>© {currentYear} JJ Crackers (Jegajothi Crackers Sivakasi). All rights reserved.</p>
           <div suppressHydrationWarning className="flex items-center gap-8">
             {footerLinks.legal.map((link) => (
               <Link key={link.label} href={link.href} className="hover:text-[var(--color-gold)] transition-colors">{link.label}</Link>

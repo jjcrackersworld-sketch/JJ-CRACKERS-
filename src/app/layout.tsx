@@ -12,8 +12,8 @@ import { ClientEffects } from '@/components/effects/ClientEffects';
 export const viewport: Viewport = {
   width: 'device-width',
   initialScale: 1,
-  maximumScale: 1,
-  userScalable: false,
+  maximumScale: 5,
+  userScalable: true,
 };
 
 const inter = Inter({ 
@@ -28,11 +28,13 @@ const playfair = Playfair_Display({
   display: 'swap',
 });
 
+const siteUrl = process.env.NEXT_PUBLIC_SITE_URL || 'https://jjcrackersworld.com';
+
 export const metadata: Metadata = {
-  metadataBase: new URL(process.env.NEXT_PUBLIC_SITE_URL || 'https://jjcrackersworld.com'),
+  metadataBase: new URL(siteUrl),
   title: {
-    default: "Jegajothi Crackers | Premium Sivakasi Fireworks Since 2015 | Buy Crackers Online",
-    template: "%s | Jegajothi Crackers — Sivakasi",
+    default: "JJ Crackers | Buy Sivakasi Crackers Online — Diwali Fireworks at Factory Price",
+    template: "%s | JJ Crackers — Sivakasi Crackers Online",
   },
   icons: {
     icon: [
@@ -43,33 +45,33 @@ export const metadata: Metadata = {
     shortcut: '/logo/logo.png',
     apple: '/logo/logo.png',
   },
-  description: "Sivakasi's most trusted fireworks manufacturer since 2015. Buy premium crackers online at factory direct prices — up to 60% off MRP. Safety-certified, eco-friendly green crackers for Diwali, weddings & celebrations. Free delivery across Tamil Nadu.",
+  description: "JJ Crackers (Jegajothi Crackers) — Buy premium Sivakasi crackers online at factory direct prices. Wide range of Diwali crackers, fireworks, combo packs & gift boxes. Safety-certified, eco-friendly green crackers with delivery across India. Since 2015.",
   keywords: [
-    "crackers", "fireworks", "Sivakasi", "Diwali", "premium crackers", "Jegajothi", "JJ Crackers",
-    "eco-friendly fireworks", "green crackers", "pyrotechnics", "Tamil Nadu crackers",
-    "buy crackers online", "Sivakasi crackers factory price", "Diwali crackers 2026",
-    "cheapest crackers online", "crackers wholesale Sivakasi", "online crackers Tamil Nadu",
-    "wedding crackers", "festival fireworks India", "crackers home delivery",
-    "Vembakottai crackers", "crackers near me", "best crackers shop online",
+    "JJ Crackers", "Sivakasi Crackers", "Sivakasi Fireworks", "Crackers Online",
+    "Diwali Crackers", "Buy Crackers Online", "Best Sivakasi Crackers",
+    "Cracker Gift Boxes", "Cracker Combo Packs", "Fireworks Online",
+    "Diwali Crackers Online", "Best Crackers to Buy", "Festive Crackers",
+    "Jegajothi Crackers", "Tamil Nadu Crackers", "Green Crackers Sivakasi",
+    "Family Cracker Packs", "Wedding Crackers", "Crackers Home Delivery",
   ],
-  authors: [{ name: "Jegajothi Crackers", url: process.env.NEXT_PUBLIC_SITE_URL || 'https://jjcrackersworld.com' }],
-  creator: "Jegajothi Crackers",
-  publisher: "Jegajothi Crackers",
+  authors: [{ name: "JJ Crackers (Jegajothi Crackers)", url: siteUrl }],
+  creator: "JJ Crackers",
+  publisher: "JJ Crackers (Jegajothi Crackers)",
   robots: { index: true, follow: true, googleBot: { index: true, follow: true, 'max-image-preview': 'large', 'max-snippet': -1, 'max-video-preview': -1 } },
   alternates: { canonical: '/' },
   openGraph: {
-    title: "Jegajothi Crackers | Premium Sivakasi Fireworks — Factory Direct Prices",
-    description: "Over a decade of brilliance. Premium, safety-certified fireworks delivered from Sivakasi at direct factory prices. Up to 60% off MRP.",
+    title: "JJ Crackers | Buy Sivakasi Crackers Online — Factory Direct Prices",
+    description: "JJ Crackers — Premium Sivakasi fireworks & crackers delivered across India at factory direct prices. Diwali crackers, gift boxes, combo packs & more. Since 2015.",
     type: "website",
     locale: "en_IN",
-    siteName: "Jegajothi Crackers",
-    images: [{ url: "/family-festive.png", width: 1200, height: 630, alt: "Jegajothi Crackers — Premium Sivakasi Fireworks" }],
+    siteName: "JJ Crackers",
+    images: [{ url: "/family-festive.webp", width: 1200, height: 630, alt: "JJ Crackers — Buy Premium Sivakasi Crackers Online" }],
   },
   twitter: {
     card: "summary_large_image",
-    title: "Jegajothi Crackers | Premium Sivakasi Fireworks",
-    description: "Over a decade of brilliance. Premium, safety-certified fireworks delivered from Sivakasi.",
-    images: ["/family-festive.png"],
+    title: "JJ Crackers | Buy Sivakasi Crackers & Fireworks Online",
+    description: "Premium Sivakasi crackers at factory direct prices. Diwali fireworks, gift boxes & combo packs delivered across India.",
+    images: ["/family-festive.webp"],
   },
   verification: { 
     google: process.env.NEXT_PUBLIC_GOOGLE_SITE_VERIFICATION || "", 
@@ -103,138 +105,132 @@ export default function RootLayout({
         suppressHydrationWarning
         className={`${inter.variable} ${playfair.variable} font-sans min-h-screen bg-[var(--bg)] text-[var(--text)] antialiased overflow-x-hidden transition-colors duration-400`}
       >
-        {/* JSON-LD: Organization + LocalBusiness for SEO */}
-        <script
-          type="application/ld+json"
-          dangerouslySetInnerHTML={{
-            __html: JSON.stringify([
-              {
-                '@context': 'https://schema.org',
-                '@type': 'Organization',
-                name: 'Jegajothi Crackers',
-                alternateName: 'JJ Crackers',
-                url: process.env.NEXT_PUBLIC_SITE_URL || 'https://jjcrackersworld.com',
-                logo: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://jjcrackersworld.com'}/logo/logo.png`,
-                foundingDate: '2015',
-                description: "Sivakasi's most trusted fireworks manufacturer since 2015.",
-                telephone: '+91-70923-00252',
-                email: 'jjcrackersworld@gmail.com',
-                address: {
-                  '@type': 'PostalAddress',
-                  streetAddress: '1/406, Sivakasi-Vembakottai Main Road, Opp. EB Office',
-                  addressLocality: 'Vembakottai',
-                  addressRegion: 'Tamil Nadu',
-                  addressCountry: 'IN',
-                },
-                sameAs: [
-                  'https://wa.me/917092300252',
-                ],
-              },
-              {
-                '@context': 'https://schema.org',
-                '@type': 'LocalBusiness',
-                '@id': '#localbusiness',
-                name: 'Jegajothi Crackers',
-                image: `${process.env.NEXT_PUBLIC_SITE_URL || 'https://jjcrackersworld.com'}/family-festive.png`,
-                priceRange: '₹₹',
-                telephone: '+91-70923-00252',
-                address: {
-                  '@type': 'PostalAddress',
-                  streetAddress: '1/406, Sivakasi-Vembakottai Main Road, Opp. EB Office',
-                  addressLocality: 'Vembakottai',
-                  addressRegion: 'Tamil Nadu',
-                  postalCode: '626131',
-                  addressCountry: 'IN',
-                },
-                geo: {
-                  '@type': 'GeoCoordinates',
-                  latitude: '9.3639',
-                  longitude: '77.8014',
-                },
-                areaServed: {
-                  '@type': 'Country',
-                  name: 'India',
-                },
-                openingHoursSpecification: [
-                  {
-                    '@type': 'OpeningHoursSpecification',
-                    dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
-                    opens: '09:00',
-                    closes: '20:00',
-                  },
-                ],
-              },
-            ]),
-          }}
-        />
-
-        {/* JSON-LD: FAQ for AEO (Answer Engine Optimization) */}
+        {/* JSON-LD: WebSite schema — enables Google sitelinks search box */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               '@context': 'https://schema.org',
-              '@type': 'FAQPage',
-              mainEntity: [
-                {
-                  '@type': 'Question',
-                  name: 'Where can I buy crackers online from Sivakasi?',
-                  acceptedAnswer: {
-                    '@type': 'Answer',
-                    text: 'You can buy premium crackers online from Jegajothi Crackers (JJ Crackers) at jjcrackersworld.com. We are based in Sivakasi and offer direct factory prices with up to 60% discount off MRP.',
-                  },
+              '@type': 'WebSite',
+              '@id': `${siteUrl}/#website`,
+              name: 'JJ Crackers',
+              alternateName: 'Jegajothi Crackers',
+              url: siteUrl,
+              description: 'Buy premium Sivakasi crackers online at factory direct prices. Diwali crackers, fireworks, combo packs & gift boxes delivered across India.',
+              publisher: { '@id': `${siteUrl}/#organization` },
+              potentialAction: {
+                '@type': 'SearchAction',
+                target: {
+                  '@type': 'EntryPoint',
+                  urlTemplate: `${siteUrl}/products?search={search_term_string}`,
                 },
-                {
-                  '@type': 'Question',
-                  name: 'What is the minimum order value for crackers?',
-                  acceptedAnswer: {
-                    '@type': 'Answer',
-                    text: 'The minimum order value at Jegajothi Crackers is ₹2,000. We offer a wide range of crackers starting from budget-friendly single sound crackers to premium gift boxes.',
-                  },
-                },
-                {
-                  '@type': 'Question',
-                  name: 'Are Jegajothi Crackers safety certified?',
-                  acceptedAnswer: {
-                    '@type': 'Answer',
-                    text: 'Yes, all our crackers are safety-certified and manufactured following strict quality control measures in our Sivakasi facility. We prioritize customer safety and use eco-friendly materials wherever possible.',
-                  },
-                },
-                {
-                  '@type': 'Question',
-                  name: 'Do you deliver crackers across India?',
-                  acceptedAnswer: {
-                    '@type': 'Answer',
-                    text: 'Yes, we deliver crackers across all major cities in India including Chennai, Bangalore, Hyderabad, Mumbai, Delhi, and more. Tamil Nadu customers enjoy expedited delivery directly from our Sivakasi factory.',
-                  },
-                },
-                {
-                  '@type': 'Question',
-                  name: 'How much discount do I get on Diwali crackers?',
-                  acceptedAnswer: {
-                    '@type': 'Answer',
-                    text: 'Jegajothi Crackers offers up to 60% off MRP on all crackers. Since we sell directly from our factory in Sivakasi, you get the best wholesale prices without any middlemen.',
-                  },
-                },
-              ],
+                'query-input': 'required name=search_term_string',
+              },
+              inLanguage: 'en-IN',
             }),
           }}
         />
 
-        {/* JSON-LD: HowTo for ordering (AEO / Voice Search) */}
+        {/* JSON-LD: Organization — core brand entity */}
         <script
           type="application/ld+json"
           dangerouslySetInnerHTML={{
             __html: JSON.stringify({
               '@context': 'https://schema.org',
-              '@type': 'HowTo',
-              name: 'How to Order Crackers Online from Jegajothi Crackers',
-              description: 'Step-by-step guide to order premium Sivakasi crackers online at factory direct prices.',
-              step: [
-                { '@type': 'HowToStep', name: 'Browse Products', text: 'Visit our products page and browse through our extensive catalog of safety-certified crackers.', position: 1 },
-                { '@type': 'HowToStep', name: 'Add to Cart', text: 'Select your favorite crackers and add them to your enquiry cart.', position: 2 },
-                { '@type': 'HowToStep', name: 'Submit Order', text: 'Fill in your delivery details and submit your order. Our team will confirm via WhatsApp.', position: 3 },
-                { '@type': 'HowToStep', name: 'Receive Delivery', text: 'Your crackers will be packed safely and delivered to your doorstep.', position: 4 },
+              '@type': 'Organization',
+              '@id': `${siteUrl}/#organization`,
+              name: 'JJ Crackers',
+              alternateName: ['Jegajothi Crackers', 'JJ Crackers World', 'JJ Crackers Sivakasi', 'Jegajothi Crackers Sivakasi', 'ஜெகஜோதி பட்டாசுகள்'],
+              url: siteUrl,
+              logo: {
+                '@type': 'ImageObject',
+                url: `${siteUrl}/logo/logo.png`,
+                width: 512,
+                height: 512,
+              },
+              image: `${siteUrl}/family-festive.webp`,
+              foundingDate: '2015',
+              description: 'JJ Crackers and Jegajothi Crackers are the exact same Sivakasi-based fireworks manufacturing enterprise, offering premium crackers online at factory direct prices since 2015.',
+              slogan: 'மகிழ்வித்து மகிழ்வோம்',
+              telephone: '+91-70923-00252',
+              email: 'jjcrackersworld@gmail.com',
+              address: {
+                '@type': 'PostalAddress',
+                streetAddress: '1/406, Sivakasi-Vembakottai Main Road, Opp. EB Office',
+                addressLocality: 'Vembakottai',
+                addressRegion: 'Tamil Nadu',
+                postalCode: '626131',
+                addressCountry: 'IN',
+              },
+              geo: {
+                '@type': 'GeoCoordinates',
+                latitude: '9.3639',
+                longitude: '77.8014',
+              },
+              areaServed: {
+                '@type': 'Country',
+                name: 'India',
+              },
+              sameAs: [
+                'https://www.instagram.com/jjcrackers_world/',
+                'https://wa.me/917092300252',
+                'https://maps.app.goo.gl/pi2T1vsVV5dzjZpv9',
+              ],
+              contactPoint: {
+                '@type': 'ContactPoint',
+                telephone: '+91-70923-00252',
+                contactType: 'customer service',
+                areaServed: 'IN',
+                availableLanguage: ['English', 'Tamil'],
+              },
+            }),
+          }}
+        />
+
+        {/* JSON-LD: LocalBusiness — local search / Google Maps */}
+        <script
+          type="application/ld+json"
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              '@context': 'https://schema.org',
+              '@type': 'LocalBusiness',
+              '@id': `${siteUrl}/#localbusiness`,
+              name: 'JJ Crackers — Jegajothi Crackers',
+              alternateName: ['JJ Crackers', 'Jegajothi Crackers', 'JJ Crackers Sivakasi', 'Jegajothi Crackers Sivakasi', 'ஜெகஜோதி பட்டாசுகள்'],
+              description: 'JJ Crackers (also known as Jegajothi Crackers) is a Sivakasi-based fireworks manufacturer offering authentic crackers and fireworks directly at factory prices since 2015.',
+              image: `${siteUrl}/family-festive.webp`,
+              priceRange: '₹₹',
+              telephone: '+91-70923-00252',
+              email: 'jjcrackersworld@gmail.com',
+              url: siteUrl,
+              address: {
+                '@type': 'PostalAddress',
+                streetAddress: '1/406, Sivakasi-Vembakottai Main Road, Opp. EB Office',
+                addressLocality: 'Vembakottai',
+                addressRegion: 'Tamil Nadu',
+                postalCode: '626131',
+                addressCountry: 'IN',
+              },
+              geo: {
+                '@type': 'GeoCoordinates',
+                latitude: '9.3639',
+                longitude: '77.8014',
+              },
+              areaServed: {
+                '@type': 'Country',
+                name: 'India',
+              },
+              openingHoursSpecification: [
+                {
+                  '@type': 'OpeningHoursSpecification',
+                  dayOfWeek: ['Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'],
+                  opens: '09:00',
+                  closes: '20:00',
+                },
+              ],
+              sameAs: [
+                'https://www.instagram.com/jjcrackers_world/',
+                'https://wa.me/917092300252',
               ],
             }),
           }}

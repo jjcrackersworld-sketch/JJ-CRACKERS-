@@ -1,20 +1,22 @@
 import type { Metadata } from 'next';
+import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 
 export const metadata: Metadata = {
-  title: 'Fireworks Safety Precautions & Handling Guide | Sivakasi Rules',
-  description: 'Learn essential tips for storing, handling, and lighting fireworks safely. Protect children, follow eco-friendly green guidelines, and ensure safe celebrations.',
+  title: 'Fireworks Safety Guidelines — Safe Crackers Use Tips',
+  description: 'Essential safety guidelines for using crackers and fireworks. Children safety, lighting tips, fire prevention, protective gear, eco-friendly practices, and emergency contacts from JJ Crackers.',
   keywords: [
-    'how to light fireworks safely',
-    'eco friendly green crackers guidelines',
-    'Sivakasi crackers safety rules',
-    'child safety Diwali fireworks'
+    'crackers safety tips',
+    'fireworks safety guidelines',
+    'Diwali crackers safety',
+    'safe crackers for children',
+    'eco-friendly crackers tips',
   ],
   alternates: {
     canonical: '/safety',
   },
   openGraph: {
-    title: 'Fireworks Safety Handling Guide | Jegajothi Crackers',
-    description: 'Practical safety instructions and tips to prevent fire hazards and ensure safe family celebrations.',
+    title: 'Fireworks Safety Guidelines — JJ Crackers',
+    description: 'Essential safety tips for a safe and joyful celebration with crackers.',
     url: 'https://jjcrackersworld.com/safety',
   }
 };
@@ -24,5 +26,12 @@ export default function SafetyLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return (
+    <>
+      <div className="max-w-[1400px] mx-auto px-4 sm:px-6 pt-4 pb-2">
+        <Breadcrumbs items={[{ label: 'Safety Guidelines' }]} />
+      </div>
+      {children}
+    </>
+  );
 }

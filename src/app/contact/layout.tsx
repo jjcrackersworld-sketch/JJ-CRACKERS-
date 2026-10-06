@@ -1,20 +1,22 @@
 import type { Metadata } from 'next';
+import { Breadcrumbs } from '@/components/ui/Breadcrumbs';
 
 export const metadata: Metadata = {
-  title: 'Contact Sivakasi Office & Wholesale Booking | Jegajothi Crackers',
-  description: 'Connect with Jegajothi Crackers wholesale support: Call +91 70923 00252. Visit our Sivakasi-Vembakottai Main Road showroom or enquire online for custom wedding orders.',
+  title: 'Contact JJ Crackers — Sivakasi Factory & Wholesale Enquiry',
+  description: 'Contact JJ Crackers (Jegajothi Crackers) at +91 70923 00252. Visit our factory at Sivakasi-Vembakottai Main Road or order online. Wholesale, wedding, and corporate cracker orders welcome.',
   keywords: [
-    'Sivakasi crackers wholesale contact number',
-    'buy crackers directly from Sivakasi factory',
-    'Jegajothi crackers support address',
-    'bulk order fireworks Sivakasi'
+    'JJ Crackers contact',
+    'Sivakasi crackers phone number',
+    'buy crackers from Sivakasi factory',
+    'wholesale crackers contact',
+    'Jegajothi Crackers address',
   ],
   alternates: {
     canonical: '/contact',
   },
   openGraph: {
-    title: 'Contact Wholesale Office | Jegajothi Crackers',
-    description: 'Get in touch for bulk orders, corporate gifting, and local distribution bookings.',
+    title: 'Contact JJ Crackers — Sivakasi Office & Online Orders',
+    description: 'Get in touch with JJ Crackers for orders, bulk enquiries, and wholesale bookings. Call +91 70923 00252.',
     url: 'https://jjcrackersworld.com/contact',
   }
 };
@@ -24,5 +26,12 @@ export default function ContactLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <>{children}</>;
+  return (
+    <>
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 pt-4 pb-2">
+        <Breadcrumbs items={[{ label: 'Contact' }]} />
+      </div>
+      {children}
+    </>
+  );
 }

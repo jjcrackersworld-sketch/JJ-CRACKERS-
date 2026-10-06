@@ -14,6 +14,7 @@ interface ProductCardProps {
 function ProductCardInner({ product, viewMode = 'grid' }: ProductCardProps) {
   const items = useEnquiryStore((state) => state.items);
   const [isAdded, setIsAdded] = useState(false);
+  const [imgError, setImgError] = useState(false);
 
   // Retrieve actions statically to avoid SSR / React 19 hydration issues
   const { addItem, updateQuantity } = useEnquiryStore.getState();
@@ -27,6 +28,8 @@ function ProductCardInner({ product, viewMode = 'grid' }: ProductCardProps) {
     setIsAdded(true);
     setTimeout(() => setIsAdded(false), 2000);
   };
+
+  const imageSrc = imgError || !product.image_url ? '/logo/logo.png' : product.image_url;
 
   if (viewMode === 'list') {
     return (
@@ -51,15 +54,16 @@ function ProductCardInner({ product, viewMode = 'grid' }: ProductCardProps) {
         <div className="flex gap-3 sm:gap-6 items-center">
           {/* Image */}
           <div className="relative w-20 h-20 sm:w-28 sm:h-28 rounded-xl bg-[var(--surface-high)] overflow-hidden flex-shrink-0 border border-[var(--border)]/30">
-            {product.image_url ? (
+            {imageSrc ? (
               <Image
-                src={product.image_url}
+                src={imageSrc}
                 alt={product.name_en}
                 fill
                 sizes="120px"
                 className="object-cover"
                 loading="lazy"
-                unoptimized={Boolean(product.image_url?.startsWith('data:'))}
+                unoptimized
+                onError={() => setImgError(true)}
               />
             ) : (
               <div className="absolute inset-0 flex items-center justify-center shimmer">
@@ -241,15 +245,16 @@ function ProductCardInner({ product, viewMode = 'grid' }: ProductCardProps) {
 
       {/* Image */}
       <div className="relative w-full pt-[100%] bg-[var(--surface-high)] overflow-hidden rounded-t-2xl">
-        {product.image_url ? (
+        {imageSrc ? (
           <Image
-            src={product.image_url}
+            src={imageSrc}
             alt={product.name_en}
             fill
             sizes="(max-width: 640px) 50vw, (max-width: 1024px) 33vw, 25vw"
             className={`object-cover transition-transform duration-700 ${product.in_stock ? 'group-hover:scale-110' : 'opacity-40 grayscale-[20%]'}`}
             loading="lazy"
-            unoptimized={Boolean(product.image_url?.startsWith('data:'))}
+            unoptimized
+            onError={() => setImgError(true)}
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center shimmer">

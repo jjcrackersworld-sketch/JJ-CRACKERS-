@@ -46,11 +46,15 @@ export function Navbar() {
           <Link href="/" suppressHydrationWarning className="flex items-center gap-2 sm:gap-3 group" id="nav-logo">
             <motion.div suppressHydrationWarning whileHover={{ scale: 1.1, rotate: 5 }}
               className="relative w-10 h-10 sm:w-12 sm:h-12 overflow-hidden flex-shrink-0">
-              <Image src="/logo/logo.png" alt="JJ Crackers" fill priority className="object-contain dark:brightness-[0.9] dark:contrast-[1.1] transition-all duration-300" sizes="(max-width: 640px) 40px, 48px" />
+              <Image src="/logo/logo.png" alt="JJ Crackers (Jegajothi Crackers)" fill priority className="object-contain dark:brightness-[0.9] dark:contrast-[1.1] transition-all duration-300" sizes="(max-width: 640px) 40px, 48px" />
             </motion.div>
             <div className="flex flex-col">
-              <span className="font-display text-base sm:text-lg font-bold tracking-tight text-[var(--text)] leading-none">Jegajothi</span>
-              <span className="text-[8px] sm:text-[10px] uppercase tracking-[0.2em] text-[var(--color-gold)] font-semibold leading-none mt-0.5">Premium Crackers</span>
+              <div className="flex items-center gap-1.5 leading-none">
+                <span className="font-display text-base sm:text-lg font-extrabold tracking-tight text-[var(--color-gold)]">JJ Crackers</span>
+                <span className="text-[10px] sm:text-xs text-[var(--text-muted)] font-medium">·</span>
+                <span className="font-display text-xs sm:text-sm font-semibold text-[var(--text)]/90">Jegajothi</span>
+              </div>
+              <span className="text-[8px] sm:text-[9px] uppercase tracking-[0.2em] text-[var(--color-gold)]/80 font-bold mt-1">Sivakasi Fireworks</span>
             </div>
           </Link>
 
