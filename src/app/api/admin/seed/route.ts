@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import * as xlsx from 'xlsx';
 
+import { requireAdmin } from '@/lib/admin-auth';
+
 export const dynamic = 'force-dynamic';
 
 function generateSlug(name: string) {
@@ -23,6 +25,9 @@ function getRowValue(row: any, searchKeys: string[]): any {
 }
 
 export async function POST(req: Request) {
+  const denied = requireAdmin(req);
+  if (denied) return denied;
+
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;

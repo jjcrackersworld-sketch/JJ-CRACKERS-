@@ -1,11 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { products as staticProducts } from '@/lib/data/products';
+import { requireAdmin } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 
-// Bulk insert all static products into Supabase
-export async function POST() {
+// Bulk insert all static products into Supabase (Admin authenticated)
+export async function POST(req: Request) {
+  const denied = requireAdmin(req);
+  if (denied) return denied;
+
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -30,7 +34,7 @@ export async function POST() {
       mrp: p.mrp,
       discount_percent: p.discount_percent || 0,
       badge_text: p.badge_text || null,
-      image_url: p.image_url || null,
+      image_url: p.image_url || `/products/${p.slug}.jpg`,
       in_stock: p.in_stock !== undefined ? p.in_stock : true,
       is_featured: p.is_featured || false,
       is_eco_friendly: false,
@@ -56,10 +60,23 @@ export async function POST() {
       }
     }
 
+    // Safeguard: Remove any products that are not part of canonical catalog
+    const canonicalSlugs = new Set(staticProducts.map(p => p.slug));
+    const { data: currentRows } = await supabase.from('products').select('id,slug');
+    let rogueDeleted = 0;
+    if (currentRows) {
+      const rogueIds = currentRows.filter(r => !canonicalSlugs.has(r.slug)).map(r => r.id);
+      if (rogueIds.length > 0) {
+        const { data: delData } = await supabase.from('products').delete().in('id', rogueIds).select('id');
+        rogueDeleted = delData?.length || 0;
+      }
+    }
+
     return NextResponse.json({
       success: true,
       totalInserted,
       totalAttempted: productsToInsert.length,
+      rogueDeleted,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error: any) {

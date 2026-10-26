@@ -57,7 +57,7 @@ export async function GET(req: Request) {
 
     let query = supabase
       .from('products')
-      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,in_stock,is_featured,is_eco_friendly,sort_order', { count: 'exact' });
+      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order', { count: 'exact' });
 
     if (category && category !== 'all') {
       query = query.eq('category', category);
@@ -92,7 +92,7 @@ export async function GET(req: Request) {
 
     const sanitizedProducts = (data || []).map((p: any) => ({
       ...p,
-      image_url: `/product-assets/${p.id}.jpg`,
+      image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
     }));
 
     return NextResponse.json({

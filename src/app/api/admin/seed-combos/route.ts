@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/admin-auth';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +62,10 @@ const combos = [
   }
 ];
 
-export async function POST() {
+export async function POST(req: Request) {
+  const denied = requireAdmin(req);
+  if (denied) return denied;
+
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -82,7 +86,12 @@ export async function POST() {
       }, { status: 400 });
     }
 
-    // Insert combos
+    // Deduplicate / upsert combos by removing any existing matches first
+    for (const combo of combos) {
+      await supabase.from('combo_packs').delete().eq('combo_name', combo.combo_name);
+    }
+
+    // Insert clean combos
     const { data, error } = await supabase.from('combo_packs').insert(combos).select('id');
 
     if (error) {
