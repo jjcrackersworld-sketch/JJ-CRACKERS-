@@ -11,7 +11,7 @@ import "./globals.css";
 import { ClientEffects } from '@/components/effects/ClientEffects';
 
 // ⚡ MAINTENANCE MODE — set to false to restore the live site
-const MAINTENANCE_MODE = true;
+const MAINTENANCE_MODE = false;
 
 export const viewport: Viewport = {
   width: 'device-width',
