@@ -1,7 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from '@/lib/admin-auth';
-
+import { requireAdmin, getClientIp } from '@/lib/security/auth';
+import { verifyApprovalToken } from '@/lib/security/approvals';
+import { writeAuditRecord } from '@/lib/security/audit';
+import { dispatchSecurityAlert } from '@/lib/security/alerts';
+import { createPreOperationSnapshot } from '@/lib/security/recovery';
 import { products as staticProducts } from '@/lib/data/products';
 
 export const dynamic = 'force-dynamic';
@@ -69,11 +72,12 @@ const CATEGORY_REMAP: Record<string, string> = {
   'COMBO PACK': 'giftbox',
 };
 
-// POST — Full Supabase cleanup
+// POST — Full Supabase cleanup (Requires CRITICAL Reauth + Approval Token)
 export async function POST(req: Request) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const auth = requireAdmin(req, 'CRITICAL');
+  if (!auth.authorized) return auth.response;
 
+  const ip = auth.ip;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -81,6 +85,33 @@ export async function POST(req: Request) {
     if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
       return NextResponse.json({ error: 'Supabase not configured' }, { status: 400 });
     }
+
+    const approvalToken = req.headers.get('x-approval-token');
+    if (!approvalToken) {
+      return NextResponse.json(
+        {
+          error: 'Database cleanup is a CRITICAL operation. Explicit administrator approval challenge token is required.',
+          code: 'APPROVAL_REQUIRED',
+          riskLevel: 'CRITICAL',
+        },
+        { status: 403 }
+      );
+    }
+
+    const verifyRes = verifyApprovalToken(approvalToken, 'DATABASE_CLEANUP', ['database'], { action: 'cleanup' }, true);
+    if (!verifyRes.valid) {
+      await dispatchSecurityAlert({
+        alertType: 'PAYLOAD_TAMPERING_DETECTED',
+        severity: 'CRITICAL',
+        message: `Database cleanup rejected: ${verifyRes.error}`,
+        actor: auth.session.role,
+        ip,
+      });
+      return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
+    }
+
+    // Pre-operation Snapshot for safe rollback
+    const snapshotId = await createPreOperationSnapshot('Full database cleanup');
 
     const supabase = createClient(supabaseUrl, supabaseKey);
     const report: string[] = [];
@@ -256,9 +287,22 @@ export async function POST(req: Request) {
     report.push('');
     report.push(`📊 Final counts: ${productCount || 0} products, ${comboCount || 0} combos, ${categoryCount || 0} categories`);
 
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'DATABASE_CLEANUP',
+      riskLevel: 'CRITICAL',
+      targetIds: ['database'],
+      approvalId: approvalToken,
+      ip,
+      status: 'SUCCESS',
+      details: `Database cleanup completed: ${productCount} products, ${comboCount} combos. Snapshot: ${snapshotId}`,
+    });
+
     return NextResponse.json({
       success: true,
       report,
+      snapshotId,
       stats: {
         products: productCount || 0,
         combos: comboCount || 0,

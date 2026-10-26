@@ -327,6 +327,31 @@ export default function AdminPage() {
     return fetch(input, { ...init, headers });
   };
 
+  const requestApprovalToken = async (
+    action: string,
+    riskLevel: string,
+    targetIds: string[],
+    payload: any,
+    previewSummary: string
+  ): Promise<string> => {
+    const res = await adminFetch('/api/admin/approvals', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        action,
+        riskLevel,
+        targetIds,
+        payload,
+        previewSummary,
+      }),
+    });
+    const data = await res.json();
+    if (!res.ok || !data.challenge?.challengeToken) {
+      throw new Error(data.error || 'Failed to acquire security approval token.');
+    }
+    return data.challenge.challengeToken;
+  };
+
   const [orders, setOrders] = useState<any[]>([]);
   const [products, setProducts] = useState<any[]>([]);
   const [enquiries, setEnquiries] = useState<any[]>([]);
@@ -334,6 +359,7 @@ export default function AdminPage() {
   const [combos, setCombos] = useState<any[]>([]);
   const [errorLogs, setErrorLogs] = useState<any[]>([]);
   const [analyticsEvents, setAnalyticsEvents] = useState<any[]>([]);
+  const [auditLogs, setAuditLogs] = useState<any[]>([]);
   
   // Settings & Bank Account lists
   const [settings, setSettings] = useState<any>({
@@ -509,7 +535,8 @@ export default function AdminPage() {
         adminFetch('/api/admin/tracking').then(r => r.json()).catch(() => ({ error_logs: [], analytics_events: [] })),
         adminFetch('/api/bank-accounts').then(r => r.json()).catch(() => []),
         adminFetch('/api/sliders').then(r => r.json()).catch(() => []),
-      ]).then(([e, m, c, t, b, slds]) => {
+        adminFetch('/api/admin/approvals?type=audit').then(r => r.json()).catch(() => ({ logs: [] })),
+      ]).then(([e, m, c, t, b, slds, auditData]) => {
         setEnquiries(Array.isArray(e) ? e : []);
         setMessages(Array.isArray(m) ? m : []);
         setCombos(Array.isArray(c) ? c : []);
@@ -517,6 +544,7 @@ export default function AdminPage() {
         setAnalyticsEvents(t?.analytics_events || []);
         setBankAccounts(Array.isArray(b) ? b : []);
         setSliders(Array.isArray(slds) ? slds : []);
+        setAuditLogs(auditData?.logs || []);
       }).catch(err => console.error('Error fetching secondary admin data:', err));
 
       return;
@@ -609,9 +637,19 @@ export default function AdminPage() {
       return;
     }
     setSeeding(true); 
-    setSeedStatus('Seeding all products from JSON price list into Database...');
+    setSeedStatus('Acquiring security approval and syncing catalog into Database...');
     try {
-      const res = await adminFetch('/api/admin/seed-products', { method: 'POST' });
+      const approvalToken = await requestApprovalToken(
+        'CATALOG_SEED',
+        'CRITICAL',
+        ['all_products'],
+        { action: 'seed_canonical_products' },
+        'Admin re-sync of canonical 150 products'
+      );
+      const res = await adminFetch('/api/admin/seed-products', {
+        method: 'POST',
+        headers: { 'x-approval-token': approvalToken }
+      });
       const data = await res.json();
       if (res.ok) { 
         setSeedStatus(`✅ Successfully seeded ${data.totalInserted} products!`); 
@@ -620,8 +658,8 @@ export default function AdminPage() {
       } else { 
         setSeedStatus(`❌ Failed: ${data.error}`); 
       }
-    } catch { 
-      setSeedStatus('❌ Database seed operation failed'); 
+    } catch (err: any) { 
+      setSeedStatus(`❌ Database seed operation failed: ${err.message || 'Error'}`); 
     }
     setSeeding(false);
   };
@@ -630,15 +668,34 @@ export default function AdminPage() {
     setConfirmConfig({
       isOpen: true,
       title: 'Delete Product?',
-      message: `Are you sure you want to delete "${name}"? This action is permanent.`,
+      message: `Are you sure you want to delete "${name}"? This action is permanent and creates an audit snapshot.`,
       confirmLabel: 'Delete Product',
       isDanger: true,
       action: async () => {
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         try {
-          await adminFetch(`/api/products/${id}`, { method: 'DELETE' });
-          fetchData();
-        } catch (err) { console.error(err); }
+          const approvalToken = await requestApprovalToken(
+            'PRODUCT_DELETE_SINGLE',
+            'HIGH',
+            [id],
+            { id },
+            `Delete product: ${name} (${id})`
+          );
+          const res = await adminFetch(`/api/products/${id}`, {
+            method: 'DELETE',
+            headers: { 'x-approval-token': approvalToken }
+          });
+          if (res.ok) {
+            showSuccess('✅ Product deleted and archived in recovery snapshot');
+            fetchData();
+          } else {
+            const d = await res.json().catch(() => ({}));
+            alert(`Failed to delete product: ${d.error || 'Server error'}`);
+          }
+        } catch (err: any) { 
+          console.error(err);
+          alert(`Security error: ${err.message || 'Failed to acquire approval'}`);
+        }
       }
     });
   };
@@ -648,15 +705,26 @@ export default function AdminPage() {
     setConfirmConfig({
       isOpen: true,
       title: 'Delete Selected Products?',
-      message: `Are you sure you want to delete the ${selectedProductIds.length} selected products? This action is permanent and cannot be undone.`,
+      message: `Are you sure you want to delete the ${selectedProductIds.length} selected products? This action is permanent and creates an audit snapshot.`,
       confirmLabel: 'Delete Selected',
       isDanger: true,
       action: async () => {
         setConfirmConfig(prev => ({ ...prev, isOpen: false }));
         try {
-          const res = await adminFetch(`/api/products?ids=${selectedProductIds.join(',')}`, { method: 'DELETE' });
+          const approvalToken = await requestApprovalToken(
+            'PRODUCT_DELETE_BULK',
+            'HIGH',
+            selectedProductIds,
+            { ids: selectedProductIds },
+            `Bulk delete of ${selectedProductIds.length} products`
+          );
+          const res = await adminFetch(`/api/products?ids=${selectedProductIds.join(',')}`, {
+            method: 'DELETE',
+            headers: { 'x-approval-token': approvalToken }
+          });
           if (res.ok) {
             setSelectedProductIds([]);
+            showSuccess('✅ Products deleted and archived in recovery snapshot');
             fetchData();
           } else {
             const data = await res.json().catch(() => ({}));
@@ -664,7 +732,7 @@ export default function AdminPage() {
           }
         } catch (err: any) {
           console.error(err);
-          alert('Failed to delete products.');
+          alert(`Security error: ${err.message || 'Failed to delete products.'}`);
         }
       }
     });
@@ -699,9 +767,19 @@ export default function AdminPage() {
 
   const seedCombos = async () => {
     setSeedingCombos(true); 
-    setSeedComboStatus('Seeding default package combos into Database...');
+    setSeedComboStatus('Acquiring security approval and seeding combos into Database...');
     try {
-      const res = await adminFetch('/api/admin/seed-combos', { method: 'POST' });
+      const approvalToken = await requestApprovalToken(
+        'CATALOG_SEED',
+        'CRITICAL',
+        ['combo_packs'],
+        { action: 'seed_combos' },
+        'Admin seed of package combos'
+      );
+      const res = await adminFetch('/api/admin/seed-combos', {
+        method: 'POST',
+        headers: { 'x-approval-token': approvalToken }
+      });
       const data = await res.json();
       if (res.ok) { 
         setSeedComboStatus(`✅ Successfully seeded ${data.totalInserted} combo packs!`); 
@@ -710,17 +788,27 @@ export default function AdminPage() {
       } else { 
         setSeedComboStatus(`❌ Failed: ${data.error}`); 
       }
-    } catch { 
-      setSeedComboStatus('❌ Combo seed operation failed'); 
+    } catch (err: any) { 
+      setSeedComboStatus(`❌ Combo seed operation failed: ${err.message || 'Error'}`); 
     }
     setSeedingCombos(false);
   };
 
   const handleCleanupDatabase = async () => {
     setCleaning(true);
-    setCleanupStatus('Cleaning up duplicate combos, remapping products & syncing categories...');
+    setCleanupStatus('Acquiring security approval and cleaning up database...');
     try {
-      const res = await adminFetch('/api/admin/cleanup', { method: 'POST' });
+      const approvalToken = await requestApprovalToken(
+        'DATABASE_CLEANUP',
+        'CRITICAL',
+        ['database'],
+        { action: 'cleanup' },
+        'Full database cleanup'
+      );
+      const res = await adminFetch('/api/admin/cleanup', {
+        method: 'POST',
+        headers: { 'x-approval-token': approvalToken }
+      });
       const data = await res.json();
       if (res.ok) {
         setCleanupStatus(`✅ Cleanup complete! See details in console or reload page.`);
@@ -869,19 +957,33 @@ export default function AdminPage() {
 
   const handleUpload = async () => {
     if (!file) return;
-    setUploadStatus('Uploading spreadsheet data...');
-    const fd = new FormData(); 
-    fd.append('file', file);
+    setUploadStatus('Acquiring security approval for bulk import...');
     try {
-      const res = await adminFetch('/api/admin/seed', { method: 'POST', body: fd });
+      const approvalToken = await requestApprovalToken(
+        'PRODUCT_BULK_IMPORT',
+        'HIGH',
+        ['bulk_upload'],
+        { fileName: file.name },
+        `Import spreadsheet: ${file.name}`
+      );
+      const fd = new FormData(); 
+      fd.append('file', file);
+      fd.append('approval_token', approvalToken);
+
+      const res = await adminFetch('/api/admin/seed', {
+        method: 'POST',
+        headers: { 'x-approval-token': approvalToken },
+        body: fd
+      });
       const data = await res.json();
       setUploadStatus(res.ok ? `🎉 Imported ${data.count} products successfully!` : data.error);
       if (res.ok) {
         setFile(null);
+        showSuccess(`🎉 Imported ${data.count} products into database!`);
         fetchData();
       }
-    } catch { 
-      setUploadStatus('Spreadsheet upload failed'); 
+    } catch (err: any) { 
+      setUploadStatus(`❌ Spreadsheet upload failed: ${err.message || 'Error'}`); 
     }
   };
 
@@ -971,9 +1073,23 @@ export default function AdminPage() {
     setSavingSettings(true);
     setSettingsStatus('Saving settings...');
     try {
+      let approvalToken = '';
+      // If global_discount is provided, request approval challenge token
+      if (settings.global_discount !== undefined) {
+        approvalToken = await requestApprovalToken(
+          'PRODUCT_BULK_PRICE_CHANGE',
+          'HIGH',
+          ['all_products'],
+          settings,
+          `Global discount change to ${settings.global_discount}%`
+        );
+      }
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (approvalToken) headers['x-approval-token'] = approvalToken;
+
       const res = await adminFetch('/api/settings', {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(settings)
       });
       if (res.ok) {
@@ -984,8 +1100,8 @@ export default function AdminPage() {
         const d = await res.json();
         setSettingsStatus(`❌ Save failed: ${d.error}`);
       }
-    } catch {
-      setSettingsStatus('❌ Connection failed saving settings');
+    } catch (err: any) {
+      setSettingsStatus(`❌ Connection failed saving settings: ${err.message || 'Error'}`);
     }
     setSavingSettings(false);
   };
@@ -994,11 +1110,38 @@ export default function AdminPage() {
   const handleSaveProduct = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
+      const isNew = !currentProduct.id;
+      let approvalToken = '';
+      if (isNew) {
+        approvalToken = await requestApprovalToken(
+          'PRODUCT_CREATE',
+          'MEDIUM',
+          [],
+          currentProduct,
+          `Create product: ${currentProduct.name_en || 'New Product'}`
+        );
+      } else {
+        const orig = products.find(p => p.id === currentProduct.id);
+        const priceChanged = orig && (Number(orig.price) !== Number(currentProduct.price) || Number(orig.mrp) !== Number(currentProduct.mrp) || orig.category !== currentProduct.category);
+        if (priceChanged) {
+          approvalToken = await requestApprovalToken(
+            'PRODUCT_UPDATE_PRICE',
+            'MEDIUM',
+            [currentProduct.id],
+            currentProduct,
+            `Update price/category for ${currentProduct.name_en}`
+          );
+        }
+      }
+
       const method = currentProduct.id ? 'PATCH' : 'POST';
       const endpoint = currentProduct.id ? `/api/products/${currentProduct.id}` : '/api/products';
+      const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+      if (approvalToken) headers['x-approval-token'] = approvalToken;
+
       const res = await adminFetch(endpoint, {
         method,
-        headers: { 'Content-Type': 'application/json' },
+        headers,
         body: JSON.stringify(currentProduct)
       });
       if (res.ok) {
@@ -1010,8 +1153,9 @@ export default function AdminPage() {
         const d = await res.json().catch(() => ({}));
         alert(`Failed to save product: ${d.error || res.statusText || 'Unknown error'}`);
       }
-    } catch (err) {
+    } catch (err: any) {
       console.error(err);
+      alert(`Security error: ${err.message || 'Failed to authorize product change'}`);
     }
   };
 
@@ -3063,6 +3207,85 @@ export default function AdminPage() {
                       <div className="text-[#A0A090] text-xs text-center py-24">No live event signals detected</div>
                     )}
                   </div>
+                </div>
+              </div>
+
+              {/* Security & Audit Trail Card */}
+              <div className="bg-[#141412] border border-[#2A2A24] rounded-2xl p-6 flex flex-col">
+                <div className="flex items-center justify-between mb-5">
+                  <div className="flex items-center gap-3">
+                    <div className="w-8 h-8 rounded-lg bg-[var(--color-gold)]/10 text-[var(--color-gold)] flex items-center justify-center font-bold">
+                      <Lock size={15} />
+                    </div>
+                    <div>
+                      <h3 className="font-display font-bold text-xs text-[#F5F5F0]">
+                        Production Security Audit Trail ({auditLogs.length} Records)
+                      </h3>
+                      <p className="text-[10px] text-[#A0A090]">
+                        Tamper-resistant audit log capturing all administrative catalog changes, approval challenges, and authorizations
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="overflow-x-auto">
+                  <table className="w-full text-left text-xs">
+                    <thead>
+                      <tr className="border-b border-[#2A2A24] text-[9px] font-bold text-[#A0A090] uppercase tracking-wider">
+                        <th className="py-2 px-3">Timestamp</th>
+                        <th className="py-2 px-3">Action</th>
+                        <th className="py-2 px-3">Actor / IP</th>
+                        <th className="py-2 px-3">Risk Tier</th>
+                        <th className="py-2 px-3">Status</th>
+                        <th className="py-2 px-3">Details</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#2A2A24]/50">
+                      {auditLogs.map((log) => (
+                        <tr key={log.id} className="hover:bg-[#1C1C18]/50 transition-colors">
+                          <td className="py-2.5 px-3 text-[10px] text-[#A0A090] whitespace-nowrap">
+                            {new Date(log.timestamp).toLocaleString()}
+                          </td>
+                          <td className="py-2.5 px-3 font-mono text-[10px] font-bold text-[#F5F5F0]">
+                            {log.action}
+                          </td>
+                          <td className="py-2.5 px-3 text-[10px] text-[#A0A090]">
+                            <span className="text-[#F5F5F0] font-semibold">{log.actor}</span>
+                            <span className="block text-[8px] opacity-75 font-mono">{log.ip}</span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-bold font-mono ${
+                              log.riskLevel === 'CRITICAL' ? 'bg-rose-500/20 text-rose-400 border border-rose-500/30' :
+                              log.riskLevel === 'HIGH' ? 'bg-amber-500/20 text-amber-400 border border-amber-500/30' :
+                              log.riskLevel === 'MEDIUM' ? 'bg-blue-500/20 text-blue-400 border border-blue-500/30' :
+                              'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
+                            }`}>
+                              {log.riskLevel}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3">
+                            <span className={`px-2 py-0.5 rounded text-[8px] font-bold font-mono ${
+                              log.status === 'SUCCESS' ? 'text-emerald-400 bg-emerald-500/10' :
+                              log.status === 'BLOCKED' ? 'text-amber-400 bg-amber-500/10' :
+                              'text-rose-400 bg-rose-500/10'
+                            }`}>
+                              {log.status}
+                            </span>
+                          </td>
+                          <td className="py-2.5 px-3 text-[10px] text-[#A0A090] max-w-xs truncate" title={log.details}>
+                            {log.details || '—'}
+                          </td>
+                        </tr>
+                      ))}
+                      {auditLogs.length === 0 && (
+                        <tr>
+                          <td colSpan={6} className="text-center py-10 text-[#A0A090] text-xs">
+                            No security audit records logged yet
+                          </td>
+                        </tr>
+                      )}
+                    </tbody>
+                  </table>
                 </div>
               </div>
             </motion.div>

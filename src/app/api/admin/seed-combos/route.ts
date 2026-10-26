@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from '@/lib/admin-auth';
+import { requireAdmin, getClientIp } from '@/lib/security/auth';
+import { verifyApprovalToken } from '@/lib/security/approvals';
+import { writeAuditRecord } from '@/lib/security/audit';
+import { dispatchSecurityAlert } from '@/lib/security/alerts';
+import { createPreOperationSnapshot } from '@/lib/security/recovery';
 
 export const dynamic = 'force-dynamic';
 
@@ -62,10 +66,12 @@ const combos = [
   }
 ];
 
+// POST — Bulk insert combo packs into Supabase (Requires CRITICAL Reauth + Approval Challenge)
 export async function POST(req: Request) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const auth = requireAdmin(req, 'CRITICAL');
+  if (!auth.authorized) return auth.response;
 
+  const ip = auth.ip;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
@@ -73,6 +79,32 @@ export async function POST(req: Request) {
     if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
       return NextResponse.json({ error: 'Supabase credentials not configured.' }, { status: 400 });
     }
+
+    const approvalToken = req.headers.get('x-approval-token');
+    if (!approvalToken) {
+      return NextResponse.json(
+        {
+          error: 'Combo seeding is a CRITICAL risk action. Explicit administrator approval challenge token is required.',
+          code: 'APPROVAL_REQUIRED',
+          riskLevel: 'CRITICAL',
+        },
+        { status: 403 }
+      );
+    }
+
+    const verifyRes = verifyApprovalToken(approvalToken, 'CATALOG_SEED', ['combo_packs'], { action: 'seed_combos' }, true);
+    if (!verifyRes.valid) {
+      await dispatchSecurityAlert({
+        alertType: 'PAYLOAD_TAMPERING_DETECTED',
+        severity: 'CRITICAL',
+        message: `Combo seed rejected: ${verifyRes.error}`,
+        actor: auth.session.role,
+        ip,
+      });
+      return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
+    }
+
+    const snapshotId = await createPreOperationSnapshot('Seed combo packs');
 
     const supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false }
@@ -98,10 +130,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: error.message }, { status: 500 });
     }
 
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'CATALOG_SEED',
+      riskLevel: 'CRITICAL',
+      targetIds: ['combo_packs'],
+      approvalId: approvalToken,
+      ip,
+      status: 'SUCCESS',
+      details: `Seeded ${data?.length || 0} combo packs. Snapshot: ${snapshotId}`,
+    });
+
     return NextResponse.json({
       success: true,
       totalInserted: data?.length || 0,
       totalAttempted: combos.length,
+      snapshotId,
     });
   } catch (error: any) {
     console.error('Bulk combo seed error:', error);

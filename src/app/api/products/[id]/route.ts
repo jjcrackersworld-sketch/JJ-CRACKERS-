@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from '@/lib/admin-auth';
+import { requireAdmin, getClientIp } from '@/lib/security/auth';
+import { verifyApprovalToken } from '@/lib/security/approvals';
+import { writeAuditRecord } from '@/lib/security/audit';
+import { dispatchSecurityAlert } from '@/lib/security/alerts';
+import { createPreOperationSnapshot } from '@/lib/security/recovery';
 
 export const dynamic = 'force-dynamic';
 
@@ -27,23 +31,67 @@ export async function GET(req: Request, { params }: { params: Promise<{ id: stri
   }
 }
 
-// PATCH — Update product
+// PATCH — Update product (Low/Medium Risk)
 export async function PATCH(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const { id } = await params;
+  const body = await req.json();
+
+  const isPriceChange = body.price !== undefined || body.mrp !== undefined;
+  const isCategoryChange = body.category !== undefined;
+  const riskLevel = isPriceChange || isCategoryChange ? 'MEDIUM' : 'LOW';
+
+  const auth = requireAdmin(req, riskLevel);
+  if (!auth.authorized) return auth.response;
+
+  const ip = auth.ip;
   try {
-    const { id } = await params;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-    if (!supabaseUrl || supabaseUrl.includes('your_supabase')) {
+    if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
       return NextResponse.json({ error: 'Not configured' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const body = await req.json();
 
-    // Product image is no longer required.
+    // Fetch existing product for before/after comparison
+    const { data: existing, error: fetchErr } = await supabase
+      .from('products')
+      .select('*')
+      .eq('id', id)
+      .single();
+
+    if (fetchErr || !existing) {
+      return NextResponse.json({ error: 'Product not found' }, { status: 404 });
+    }
+
+    // Verify approval token for Medium risk changes (price/MRP/category modifications)
+    const approvalToken = req.headers.get('x-approval-token') || body.approval_token;
+    if (riskLevel === 'MEDIUM') {
+      if (!approvalToken) {
+        return NextResponse.json(
+          {
+            error: 'Price or Category modifications require administrator approval confirmation challenge.',
+            code: 'APPROVAL_REQUIRED',
+            riskLevel: 'MEDIUM',
+          },
+          { status: 403 }
+        );
+      }
+
+      const { approval_token, ...payloadToVerify } = body;
+      const verifyRes = verifyApprovalToken(approvalToken, 'PRODUCT_UPDATE_PRICE', [id], payloadToVerify, true);
+      if (!verifyRes.valid) {
+        await dispatchSecurityAlert({
+          alertType: 'PAYLOAD_TAMPERING_DETECTED',
+          severity: 'HIGH',
+          message: `Product update rejected for ID ${id}: ${verifyRes.error}`,
+          actor: auth.session.role,
+          ip,
+        });
+        return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
+      }
+    }
 
     const updateData: Record<string, any> = {};
     if (body.name_en !== undefined) updateData.name_en = body.name_en;
@@ -57,8 +105,8 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     // Recalculate discount
     if (body.mrp !== undefined || body.price !== undefined) {
-      const mrp = Number(body.mrp !== undefined ? body.mrp : updateData.mrp || 0);
-      const price = Number(body.price !== undefined ? body.price : updateData.price || 0);
+      const mrp = Number(body.mrp !== undefined ? body.mrp : updateData.mrp !== undefined ? updateData.mrp : existing.mrp || 0);
+      const price = Number(body.price !== undefined ? body.price : updateData.price !== undefined ? updateData.price : existing.price || 0);
       if (mrp > 0 && price < mrp) {
         updateData.discount_percent = Math.round(((mrp - price) / mrp) * 100);
         updateData.badge_text = `🔥 ${updateData.discount_percent}% OFF`;
@@ -70,45 +118,93 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const { data, error } = await supabase.from('products').update(updateData).eq('id', id).select().single();
     if (error) throw error;
+
+    // Record Immutable Audit Log
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: isPriceChange ? 'PRODUCT_UPDATE_PRICE' : 'PRODUCT_UPDATE_DETAILS',
+      riskLevel,
+      targetIds: [id],
+      beforeState: { price: existing.price, mrp: existing.mrp, category: existing.category, in_stock: existing.in_stock },
+      afterState: { price: data.price, mrp: data.mrp, category: data.category, in_stock: data.in_stock },
+      approvalId: approvalToken,
+      ip,
+      status: 'SUCCESS',
+      details: `Updated product ${existing.name_en} (${id})`,
+    });
+
     return NextResponse.json(data);
   } catch (error: any) {
     console.error('Error updating product:', error);
-    const errMessage = error.message || error.details || (typeof error === 'object' ? JSON.stringify(error) : String(error));
-    return NextResponse.json({ error: errMessage }, { status: 500 });
+    return NextResponse.json({ error: error.message || 'Failed to update product' }, { status: 500 });
   }
 }
 
-// DELETE — Delete product
+// DELETE — Delete single product (Requires High-Risk Approval & Snapshot)
 export async function DELETE(req: Request, { params }: { params: Promise<{ id: string }> }) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const auth = requireAdmin(req, 'HIGH');
+  if (!auth.authorized) return auth.response;
+
+  const ip = auth.ip;
   try {
     const { id } = await params;
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
-    if (!supabaseUrl || supabaseUrl.includes('your_supabase')) {
-      return NextResponse.json({ error: 'Supabase not configured' }, { status: 400 });
+    if (!supabaseUrl || !supabaseKey) {
+      return NextResponse.json({ error: 'Supabase credentials not configured' }, { status: 400 });
     }
-    if (!supabaseKey) {
-      return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY not set. Admin operations require the service role key.' }, { status: 400 });
+
+    const approvalToken = req.headers.get('x-approval-token');
+    if (!approvalToken) {
+      return NextResponse.json(
+        {
+          error: 'Product deletion requires an administrator approval challenge token.',
+          code: 'APPROVAL_REQUIRED',
+        },
+        { status: 403 }
+      );
+    }
+
+    const verifyRes = verifyApprovalToken(approvalToken, 'PRODUCT_DELETE_SINGLE', [id], { id }, true);
+    if (!verifyRes.valid) {
+      await dispatchSecurityAlert({
+        alertType: 'PAYLOAD_TAMPERING_DETECTED',
+        severity: 'HIGH',
+        message: `Single product deletion rejected for ID ${id}: ${verifyRes.error}`,
+        actor: auth.session.role,
+        ip,
+      });
+      return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data, error } = await supabase
-      .from('products')
-      .delete()
-      .eq('id', id)
-      .select();
 
-    if (error) {
-      console.error('Supabase delete error:', error);
-      throw error;
-    }
-
-    if (!data || data.length === 0) {
+    // Fetch existing before deletion for snapshot and audit
+    const { data: existing } = await supabase.from('products').select('*').eq('id', id).single();
+    if (!existing) {
       return NextResponse.json({ error: 'Product not found or already deleted' }, { status: 404 });
     }
+
+    // Pre-op snapshot
+    await createPreOperationSnapshot(`Deletion of single product ${existing.name_en} (${id})`);
+
+    const { data, error } = await supabase.from('products').delete().eq('id', id).select();
+    if (error) throw error;
+
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'PRODUCT_DELETE_SINGLE',
+      riskLevel: 'HIGH',
+      targetIds: [id],
+      beforeState: existing,
+      approvalId: approvalToken,
+      ip,
+      status: 'SUCCESS',
+      details: `Deleted product: ${existing.name_en} (${id})`,
+    });
 
     return NextResponse.json({ success: true, deleted: data[0] });
   } catch (error: any) {

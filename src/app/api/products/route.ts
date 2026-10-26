@@ -1,10 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { products as staticProducts } from '@/lib/data/products';
-import { requireAdmin } from '@/lib/admin-auth';
+import { requireAdmin, getClientIp } from '@/lib/security/auth';
+import { verifyApprovalToken } from '@/lib/security/approvals';
+import { writeAuditRecord } from '@/lib/security/audit';
+import { dispatchSecurityAlert } from '@/lib/security/alerts';
+import { createPreOperationSnapshot } from '@/lib/security/recovery';
 
 export const dynamic = 'force-dynamic';
 
+// GET — Public product catalog retrieval (Fast, read-only, cached)
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -116,24 +121,55 @@ export async function GET(req: Request) {
   }
 }
 
-// POST — Admin: Add new product
+// POST — Admin: Add new product (Requires Authentication + Server Approval Verification)
 export async function POST(req: Request) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const auth = requireAdmin(req, 'MEDIUM');
+  if (!auth.authorized) return auth.response;
+
+  const ip = auth.ip;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
     if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
-      return NextResponse.json({ error: 'Supabase not configured. Please set SUPABASE_SERVICE_ROLE_KEY in your environment variables.' }, { status: 400 });
+      return NextResponse.json({ error: 'Supabase not configured' }, { status: 400 });
     }
 
-    const supabase = createClient(supabaseUrl, supabaseKey);
     const body = await req.json();
 
-    const nameEn = body.name_en || body.product_name || 'untitled';
-    const cleanName = typeof nameEn === 'string' ? nameEn : 'untitled';
-    const baseSlug = cleanName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '') || 'product';
+    // 1. Approval Verification
+    const approvalToken = req.headers.get('x-approval-token') || body.approval_token;
+    if (approvalToken) {
+      // Clean body without the ephemeral token field for hash verification
+      const { approval_token, ...payloadToVerify } = body;
+      const verifyRes = verifyApprovalToken(approvalToken, 'PRODUCT_CREATE', [], payloadToVerify, true);
+      if (!verifyRes.valid) {
+        await dispatchSecurityAlert({
+          alertType: verifyRes.code === 'REPLAY' ? 'REPLAY_ATTACK_DETECTED' : 'PAYLOAD_TAMPERING_DETECTED',
+          severity: 'HIGH',
+          message: `Product creation rejected: ${verifyRes.error}`,
+          actor: auth.session.role,
+          ip,
+        });
+        return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
+      }
+    } else {
+      // Direct POST without approval token is rejected for production protection
+      return NextResponse.json(
+        {
+          error: 'Explicit administrator approval required. Please request an approval challenge before creating products.',
+          code: 'APPROVAL_REQUIRED',
+        },
+        { status: 403 }
+      );
+    }
+
+    const nameEn = body.name_en || body.product_name;
+    if (!nameEn || typeof nameEn !== 'string' || nameEn.trim().length === 0) {
+      return NextResponse.json({ error: 'Valid English product name is required' }, { status: 400 });
+    }
+
+    const baseSlug = nameEn.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '') || 'product';
     const slug = `${baseSlug}-${Math.random().toString(36).substring(2, 6)}`;
     const category = body.category || 'single-sound';
 
@@ -144,11 +180,12 @@ export async function POST(req: Request) {
       discount_percent = Math.round(((mrp - price) / mrp) * 100);
     }
 
+    const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('products')
       .insert({
-        name_en: nameEn,
-        name_ta: body.name_ta || nameEn,
+        name_en: nameEn.trim(),
+        name_ta: body.name_ta || nameEn.trim(),
         slug,
         category,
         price,
@@ -163,24 +200,50 @@ export async function POST(req: Request) {
       .single();
 
     if (error) throw error;
+
+    // Record Immutable Audit Log
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'PRODUCT_CREATE',
+      riskLevel: 'MEDIUM',
+      targetIds: [data.id],
+      afterState: data,
+      approvalId: approvalToken,
+      ip,
+      status: 'SUCCESS',
+      details: `Created product: ${nameEn} (${data.id})`,
+    });
+
     return NextResponse.json(data, { status: 201 });
   } catch (error: any) {
     console.error('Error creating product:', error);
-    const errMessage = error.message || error.details || (typeof error === 'object' ? JSON.stringify(error) : String(error));
-    return NextResponse.json({ error: errMessage }, { status: 500 });
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'PRODUCT_CREATE',
+      riskLevel: 'MEDIUM',
+      targetIds: [],
+      ip,
+      status: 'FAILED',
+      details: error.message,
+    });
+    return NextResponse.json({ error: error.message || 'Product creation failed' }, { status: 500 });
   }
 }
 
-// DELETE — Admin: Bulk delete products
+// DELETE — Admin: Bulk delete products (Requires High-Risk Reauth, Pre-Op Snapshot, and Approval)
 export async function DELETE(req: Request) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const auth = requireAdmin(req, 'HIGH');
+  if (!auth.authorized) return auth.response;
+
+  const ip = auth.ip;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
     if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
-      return NextResponse.json({ error: 'Supabase not configured.' }, { status: 400 });
+      return NextResponse.json({ error: 'Supabase not configured' }, { status: 400 });
     }
 
     const { searchParams } = new URL(req.url);
@@ -194,17 +257,68 @@ export async function DELETE(req: Request) {
       return NextResponse.json({ error: 'No IDs provided' }, { status: 400 });
     }
 
+    // High-Risk: Verify Approval Token
+    const approvalToken = req.headers.get('x-approval-token') || searchParams.get('approval_token');
+    if (!approvalToken) {
+      return NextResponse.json(
+        {
+          error: 'Bulk product deletion is a HIGH-RISK action and requires explicit administrator approval token.',
+          code: 'APPROVAL_REQUIRED',
+        },
+        { status: 403 }
+      );
+    }
+
+    const verifyRes = verifyApprovalToken(approvalToken, 'PRODUCT_DELETE_BULK', ids, { ids }, true);
+    if (!verifyRes.valid) {
+      await dispatchSecurityAlert({
+        alertType: 'PAYLOAD_TAMPERING_DETECTED',
+        severity: 'CRITICAL',
+        message: `Bulk product deletion blocked: ${verifyRes.error}`,
+        actor: auth.session.role,
+        ip,
+        context: { attemptedIds: ids },
+      });
+      return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
+    }
+
+    // Create Pre-Operation Snapshot for Safe Recovery
+    const snapshotId = await createPreOperationSnapshot(`Bulk deletion of ${ids.length} products`);
+
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('products')
       .delete()
       .in('id', ids)
-      .select();
+      .select('id, name_en');
 
     if (error) throw error;
-    return NextResponse.json({ success: true, count: data?.length || 0 });
+
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'PRODUCT_DELETE_BULK',
+      riskLevel: 'HIGH',
+      targetIds: ids,
+      approvalId: approvalToken,
+      ip,
+      status: 'SUCCESS',
+      details: `Bulk deleted ${data?.length || 0} products. Snapshot ID: ${snapshotId}`,
+    });
+
+    return NextResponse.json({ success: true, count: data?.length || 0, snapshotId });
   } catch (error: any) {
     console.error('Error deleting products:', error);
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'PRODUCT_DELETE_BULK',
+      riskLevel: 'HIGH',
+      targetIds: [],
+      ip,
+      status: 'FAILED',
+      details: error.message,
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

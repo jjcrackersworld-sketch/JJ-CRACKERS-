@@ -1,24 +1,57 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import { products as staticProducts } from '@/lib/data/products';
-import { requireAdmin } from '@/lib/admin-auth';
+import { requireAdmin, getClientIp } from '@/lib/security/auth';
+import { verifyApprovalToken } from '@/lib/security/approvals';
+import { writeAuditRecord } from '@/lib/security/audit';
+import { dispatchSecurityAlert } from '@/lib/security/alerts';
+import { createPreOperationSnapshot } from '@/lib/security/recovery';
 
 export const dynamic = 'force-dynamic';
 
-// Bulk insert all static products into Supabase (Admin authenticated)
+// Bulk insert all static products into Supabase (CRITICAL Operation: Requires Reauth + Approval Challenge)
 export async function POST(req: Request) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const auth = requireAdmin(req, 'CRITICAL');
+  if (!auth.authorized) return auth.response;
 
+  const ip = auth.ip;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
     if (!supabaseUrl || supabaseUrl.includes('your_supabase') || !supabaseKey) {
       return NextResponse.json({
-        error: 'Supabase credentials not configured. Set NEXT_PUBLIC_SUPABASE_URL, NEXT_PUBLIC_SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY in .env.local'
+        error: 'Supabase credentials not configured.'
       }, { status: 400 });
     }
+
+    // Critical Approval Verification
+    const approvalToken = req.headers.get('x-approval-token');
+    if (!approvalToken) {
+      return NextResponse.json(
+        {
+          error: 'Bulk catalog synchronization/seeding is a CRITICAL risk action. Explicit administrator approval challenge token is required.',
+          code: 'APPROVAL_REQUIRED',
+          riskLevel: 'CRITICAL',
+        },
+        { status: 403 }
+      );
+    }
+
+    const verifyRes = verifyApprovalToken(approvalToken, 'CATALOG_SEED', ['all_products'], { action: 'seed_canonical_products' }, true);
+    if (!verifyRes.valid) {
+      await dispatchSecurityAlert({
+        alertType: 'PAYLOAD_TAMPERING_DETECTED',
+        severity: 'CRITICAL',
+        message: `Catalog seed rejected: ${verifyRes.error}`,
+        actor: auth.session.role,
+        ip,
+      });
+      return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
+    }
+
+    // Pre-operation Snapshot
+    const snapshotId = await createPreOperationSnapshot('Canonical Catalog Re-sync');
 
     const supabase = createClient(supabaseUrl, supabaseKey, {
       auth: { persistSession: false }
@@ -42,7 +75,7 @@ export async function POST(req: Request) {
       sort_order: index,
     }));
 
-    // Insert in batches of 50 to avoid payload limits
+    // Insert in batches of 50
     let totalInserted = 0;
     const batchSize = 50;
     const errors: string[] = [];
@@ -73,15 +106,38 @@ export async function POST(req: Request) {
       }
     }
 
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'CATALOG_SEED',
+      riskLevel: 'CRITICAL',
+      targetIds: ['canonical_150_catalog'],
+      approvalId: approvalToken,
+      ip,
+      status: 'SUCCESS',
+      details: `Re-seeded canonical catalog. Inserted/Updated: ${totalInserted}, Removed Rogues: ${rogueDeleted}. Snapshot: ${snapshotId}`,
+    });
+
     return NextResponse.json({
       success: true,
       totalInserted,
       totalAttempted: productsToInsert.length,
       rogueDeleted,
+      snapshotId,
       errors: errors.length > 0 ? errors : undefined,
     });
   } catch (error: any) {
     console.error('Bulk seed error:', error);
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'CATALOG_SEED',
+      riskLevel: 'CRITICAL',
+      targetIds: [],
+      ip,
+      status: 'FAILED',
+      details: error.message,
+    });
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }

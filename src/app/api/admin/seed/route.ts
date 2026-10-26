@@ -1,8 +1,11 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 import * as xlsx from 'xlsx';
-
-import { requireAdmin } from '@/lib/admin-auth';
+import { requireAdmin, getClientIp } from '@/lib/security/auth';
+import { verifyApprovalToken } from '@/lib/security/approvals';
+import { writeAuditRecord } from '@/lib/security/audit';
+import { dispatchSecurityAlert } from '@/lib/security/alerts';
+import { createPreOperationSnapshot } from '@/lib/security/recovery';
 
 export const dynamic = 'force-dynamic';
 
@@ -25,9 +28,10 @@ function getRowValue(row: any, searchKeys: string[]): any {
 }
 
 export async function POST(req: Request) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const auth = requireAdmin(req, 'HIGH');
+  if (!auth.authorized) return auth.response;
 
+  const ip = auth.ip;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL!;
     const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
@@ -36,16 +40,23 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Supabase credentials are not configured in .env.local' }, { status: 400 });
     }
 
-    // Initialize Supabase admin client (bypass RLS)
-    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
-      auth: { persistSession: false }
-    });
-
     const formData = await req.formData();
     const file = formData.get('file') as File;
+    const approvalToken = (formData.get('approval_token') as string) || req.headers.get('x-approval-token');
 
     if (!file) {
       return NextResponse.json({ error: 'No file uploaded' }, { status: 400 });
+    }
+
+    if (!approvalToken) {
+      return NextResponse.json(
+        {
+          error: 'Bulk product import via file is a HIGH-RISK operation. Explicit administrator approval token is required.',
+          code: 'APPROVAL_REQUIRED',
+          riskLevel: 'HIGH',
+        },
+        { status: 403 }
+      );
     }
 
     const bytes = await file.arrayBuffer();
@@ -57,68 +68,61 @@ export async function POST(req: Request) {
     const sheet = workbook.Sheets[sheetName];
     const rows = xlsx.utils.sheet_to_json<any>(sheet);
 
-    // Fetch existing categories to map or auto-create
-    const { data: dbCategories, error: catError } = await supabase
-      .from('categories')
-      .select('*');
-    
-    if (catError) throw catError;
+    // Verify Approval Token against file payload
+    const verifyRes = verifyApprovalToken(
+      approvalToken,
+      'PRODUCT_BULK_IMPORT',
+      ['bulk_upload'],
+      { fileName: file.name },
+      true
+    );
 
-    const localCategories = dbCategories ? [...dbCategories] : [];
+    if (!verifyRes.valid) {
+      await dispatchSecurityAlert({
+        alertType: 'PAYLOAD_TAMPERING_DETECTED',
+        severity: 'HIGH',
+        message: `Bulk product import blocked: ${verifyRes.error}`,
+        actor: auth.session.role,
+        ip,
+        context: { fileName: file.name, rows: rows.length },
+      });
+      return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
+    }
 
-    const products = [];
+    // Pre-operation Snapshot for safe rollback
+    const snapshotId = await createPreOperationSnapshot(`Bulk import of ${rows.length} rows from ${file.name}`);
+
+    // Initialize Supabase admin client
+    const supabase = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: { persistSession: false },
+    });
+
+    const { data: categories } = await supabase.from('categories').select('*');
+    const localCategories = categories || [];
+
+    const products: any[] = [];
 
     for (const row of rows) {
-      const nameEn = getRowValue(row, ['productname', 'productnameenglish', 'name', 'nameen', 'englishname'])?.toString().trim();
+      const nameEn = getRowValue(row, ['productname', 'name', 'itemname', 'product', 'items', 'item']);
       if (!nameEn) continue;
 
-      const nameTa = getRowValue(row, ['productnametamil', 'tamilname', 'nameta', 'tamilnameen', 'productnameta'])?.toString().trim() || nameEn;
-      const categoryRaw = getRowValue(row, ['productcategory', 'category', 'categoryname'])?.toString().trim() || 'General';
+      const nameTa = getRowValue(row, ['tamilname', 'nameta', 'tamil']) || nameEn;
+      const mrpRaw = getRowValue(row, ['mrp', 'originalprice', 'price', 'rate']);
+      const priceRaw = getRowValue(row, ['ourprice', 'offerprice', 'discountprice', 'sellingprice', 'price']) || mrpRaw;
 
-      const mrpVal = getRowValue(row, ['originalprice', 'originalpricefirst', 'originalpriceinrupees', 'originalpricemrp', 'mrp', 'originalprice']);
-      const priceVal = getRowValue(row, ['discountedprice', 'discountedpriceinrupees', 'discountedpricesellingprice', 'price', 'sellingprice', 'discountedprice']);
+      const mrp = Number(mrpRaw) || 0;
+      const price = Number(priceRaw) || mrp;
+      const discount_percent = mrp > 0 && price < mrp ? Math.round(((mrp - price) / mrp) * 100) : 0;
 
-      const mrp = parseInt(mrpVal) || 0;
-      const price = parseInt(priceVal) || mrp;
+      const categoryRaw = getRowValue(row, ['category', 'categoryname', 'type', 'group']) || 'General';
 
-      let discount_percent = 0;
-      if (mrp > 0 && price < mrp) {
-        discount_percent = Math.round(((mrp - price) / mrp) * 100);
-      }
-
-      // Resolve category
-      let categoryId = 'general';
-      const cleanCatRaw = categoryRaw.toLowerCase();
-      const matchedCat = localCategories.find(
-        (c) => c.id.toLowerCase() === cleanCatRaw || c.label.toLowerCase() === cleanCatRaw
+      let categoryId = 'single-sound';
+      const existing = localCategories.find(
+        (c) => c.label.toLowerCase() === categoryRaw.toLowerCase() || c.id === categoryRaw.toLowerCase()
       );
 
-      if (matchedCat) {
-        categoryId = matchedCat.id;
-      } else {
-        // Auto-create category
-        const generatedId = categoryRaw.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)+/g, '');
-        const finalId = generatedId || 'general';
-
-        const existingById = localCategories.find((c) => c.id === finalId);
-        if (existingById) {
-          categoryId = existingById.id;
-        } else {
-          const newCat = {
-            id: finalId,
-            label: categoryRaw,
-            emoji: '🎆',
-            sort_order: localCategories.length,
-          };
-          
-          const { error: insertCatErr } = await supabase.from('categories').insert(newCat);
-          if (!insertCatErr) {
-            localCategories.push(newCat);
-            categoryId = finalId;
-          } else {
-            console.error('Error auto-creating category:', insertCatErr);
-          }
-        }
+      if (existing) {
+        categoryId = existing.id;
       }
 
       products.push({
@@ -141,16 +145,23 @@ export async function POST(req: Request) {
     }
 
     const { data, error } = await supabase.from('products').insert(products).select();
+    if (error) throw error;
 
-    if (error) {
-      throw error;
-    }
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: 'PRODUCT_BULK_IMPORT',
+      riskLevel: 'HIGH',
+      targetIds: data?.map((d: any) => d.id) || [],
+      approvalId: approvalToken,
+      ip,
+      status: 'SUCCESS',
+      details: `Imported ${data?.length || 0} products from file ${file.name}. Snapshot: ${snapshotId}`,
+    });
 
-    return NextResponse.json({ success: true, count: data?.length || 0 });
-
+    return NextResponse.json({ success: true, count: data?.length || 0, snapshotId });
   } catch (error: any) {
     console.error('Seed Error:', error);
     return NextResponse.json({ error: error.message }, { status: 500 });
   }
 }
-

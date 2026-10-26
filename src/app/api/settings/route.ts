@@ -1,6 +1,10 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
-import { requireAdmin } from '@/lib/admin-auth';
+import { requireAdmin, getClientIp } from '@/lib/security/auth';
+import { verifyApprovalToken } from '@/lib/security/approvals';
+import { writeAuditRecord } from '@/lib/security/audit';
+import { dispatchSecurityAlert } from '@/lib/security/alerts';
+import { createPreOperationSnapshot } from '@/lib/security/recovery';
 
 export const dynamic = 'force-dynamic';
 
@@ -61,7 +65,7 @@ export async function GET(req: Request) {
     }
 
     return NextResponse.json(settings, {
-      headers: responseHeaders
+      headers: responseHeaders,
     });
   } catch (error: any) {
     console.error('Error getting settings:', error);
@@ -69,11 +73,17 @@ export async function GET(req: Request) {
   }
 }
 
-// POST — Update settings (and update all product prices if global_discount changes)
+// POST — Update settings (High-Risk if global_discount modifies all catalog products)
 export async function POST(req: Request) {
-  const denied = requireAdmin(req);
-  if (denied) return denied;
+  const ip = getClientIp(req);
   try {
+    const body = await req.json();
+    const isDiscountChange = body.global_discount !== undefined;
+
+    // High risk if bulk discount modifies all products, else Low
+    const auth = requireAdmin(req, isDiscountChange ? 'HIGH' : 'LOW');
+    if (!auth.authorized) return auth.response;
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
 
@@ -82,47 +92,75 @@ export async function POST(req: Request) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
-    const body = await req.json();
 
-    // Check if global_discount is changing
+    // Check if global_discount is actually changing
     let previousDiscount = '60';
     const { data: currentDiscountRow } = await supabase
       .from('site_settings')
       .select('value')
       .eq('key', 'global_discount')
       .single();
+
     if (currentDiscountRow) {
       previousDiscount = currentDiscountRow.value;
     }
 
+    const newDiscount = body.global_discount;
+    const isActuallyChanging = newDiscount !== undefined && String(newDiscount) !== String(previousDiscount);
+
+    if (isActuallyChanging) {
+      // Require approval challenge token for bulk price change
+      const approvalToken = req.headers.get('x-approval-token') || body.approval_token;
+      if (!approvalToken) {
+        return NextResponse.json(
+          {
+            error: `Changing global discount from ${previousDiscount}% to ${newDiscount}% alters all catalog product prices. Explicit administrator approval token is required.`,
+            code: 'APPROVAL_REQUIRED',
+            riskLevel: 'HIGH',
+          },
+          { status: 403 }
+        );
+      }
+
+      const { approval_token, ...payloadToVerify } = body;
+      const verifyRes = verifyApprovalToken(approvalToken, 'PRODUCT_BULK_PRICE_CHANGE', ['all_products'], payloadToVerify, true);
+      if (!verifyRes.valid) {
+        await dispatchSecurityAlert({
+          alertType: 'PAYLOAD_TAMPERING_DETECTED',
+          severity: 'HIGH',
+          message: `Bulk discount change rejected: ${verifyRes.error}`,
+          actor: auth.session.role,
+          ip,
+        });
+        return NextResponse.json({ error: `Approval verification failed: ${verifyRes.error}` }, { status: 403 });
+      }
+
+      // Pre-operation snapshot
+      await createPreOperationSnapshot(`Global discount change from ${previousDiscount}% to ${newDiscount}%`);
+    }
+
     // Save settings
-    const upserts = Object.entries(body).map(([key, value]) => ({
-      key,
-      value: String(value),
-    }));
+    const upserts = Object.entries(body)
+      .filter(([key]) => key !== 'approval_token')
+      .map(([key, value]) => ({
+        key,
+        value: String(value),
+      }));
 
     if (upserts.length > 0) {
       const { error: upsertError } = await supabase.from('site_settings').upsert(upserts);
       if (upsertError) throw upsertError;
     }
 
-    // Check if global_discount has changed
-    const newDiscount = body.global_discount;
-    if (newDiscount !== undefined && String(newDiscount) !== String(previousDiscount)) {
+    // Recalculate product prices if approved and changed
+    if (isActuallyChanging) {
       const discountVal = parseInt(String(newDiscount));
       if (!isNaN(discountVal) && discountVal >= 0 && discountVal <= 100) {
-        console.log(`Global discount changed from ${previousDiscount}% to ${discountVal}%. Recalculating prices...`);
-        
-        // Fetch all products
-        const { data: products, error: fetchError } = await supabase
-          .from('products')
-          .select('*');
-        
+        const { data: products, error: fetchError } = await supabase.from('products').select('*');
         if (fetchError) throw fetchError;
-        
+
         if (products && products.length > 0) {
-          // Build updates with only the fields we want to change
-          const updates = products.map(p => {
+          const updates = products.map((p: any) => {
             const price = p.price || 0;
             const mrp = discountVal < 100 ? Math.round(price / (1 - discountVal / 100)) : price;
             return {
@@ -143,17 +181,26 @@ export async function POST(req: Request) {
             };
           });
 
-          // Supabase upsert on products table (replaces matching rows by id)
           for (const chunk of chunkArray(updates, 50)) {
             const { error: updateError } = await supabase.from('products').upsert(chunk);
-            if (updateError) {
-              console.error('Chunk update error:', updateError);
-              throw updateError;
-            }
+            if (updateError) throw updateError;
           }
         }
       }
     }
+
+    await writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: isActuallyChanging ? 'PRODUCT_BULK_PRICE_CHANGE' : 'SETTINGS_UPDATE',
+      riskLevel: isActuallyChanging ? 'HIGH' : 'LOW',
+      targetIds: Object.keys(body),
+      ip,
+      status: 'SUCCESS',
+      details: isActuallyChanging
+        ? `Global discount updated to ${newDiscount}% across entire catalog`
+        : 'Site settings updated',
+    });
 
     return NextResponse.json({ success: true });
   } catch (error: any) {
@@ -162,11 +209,10 @@ export async function POST(req: Request) {
   }
 }
 
-// Helper to chunk arrays for bulk operations
-function chunkArray<T>(array: T[], size: number): T[][] {
+function chunkArray<T>(arr: T[], size: number): T[][] {
   const chunks: T[][] = [];
-  for (let i = 0; i < array.length; i += size) {
-    chunks.push(array.slice(i, i + size));
+  for (let i = 0; i < arr.length; i += size) {
+    chunks.push(arr.slice(i, i + size));
   }
   return chunks;
 }
