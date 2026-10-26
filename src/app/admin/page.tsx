@@ -262,502 +262,46 @@ function escapeHtml(str: string = ''): string {
     .replace(/'/g, '&#039;');
 }
 
-// --- UTILITY: Print Individual Customer Invoice ---
-function printIndividualCustomerInvoice(order: any) {
-  if (!order) return;
-  const printWindow = window.open('', '_blank', 'width=960,height=850');
-  if (!printWindow) {
-    if (order.id) {
-      window.open(`/receipt/${order.id}`, '_blank');
-    }
-    return;
+// --- INSTANT CACHE HELPERS FOR SPEED ---
+function getCached<T>(key: string, fallback: T): T {
+  if (typeof window === 'undefined') return fallback;
+  try {
+    const val = sessionStorage.getItem(`jj_admin_${key}`);
+    return val ? JSON.parse(val) : fallback;
+  } catch {
+    return fallback;
   }
-
-  const orderItems = Array.isArray(order.items) 
-    ? order.items.map((i: any) => ({
-        name: i.name || i.product_name || 'Fireworks Item',
-        quantity: Number(i.quantity) || 1,
-        price: Number(i.price) || 0,
-        mrp: Number(i.mrp || i.original_price || i.price || 0),
-        category: i.category || 'Crackers',
-      }))
-    : [];
-
-  const itemsTotal = orderItems.reduce((sum: number, item: any) => sum + item.price * item.quantity, 0);
-  const diff = (Number(order.total_amount) || 0) - itemsTotal;
-  const calculatedPacking = Math.round(itemsTotal * 0.03);
-  const packingCharges = (diff >= calculatedPacking - 2 && diff <= calculatedPacking + 2) ? diff : (diff > 0 ? diff : 0);
-  const totalAmount = Number(order.total_amount) || (itemsTotal + packingCharges);
-  const formattedDate = order.created_at ? formatOrderDate(order.created_at) : new Date().toLocaleDateString('en-IN');
-
-  const rowsHtml = orderItems.map((item: any, idx: number) => {
-    const itemTotal = item.price * item.quantity;
-    return `
-      <tr>
-        <td style="text-align:center;color:#64748b;font-weight:600;padding:9px 10px;border-bottom:1px solid #e2e8f0;">${idx + 1}</td>
-        <td style="padding:9px 12px;border-bottom:1px solid #e2e8f0;">
-          <div style="font-weight:700;color:#0f172a;font-size:12px;">${escapeHtml(item.name)}</div>
-          <div style="font-size:9.5px;color:#94a3b8;text-transform:uppercase;margin-top:2px;">${escapeHtml(item.category)}</div>
-        </td>
-        <td style="text-align:center;font-weight:700;font-size:12px;padding:9px 10px;border-bottom:1px solid #e2e8f0;">${item.quantity}</td>
-        <td style="text-align:right;color:#64748b;text-decoration:line-through;font-size:11px;padding:9px 10px;border-bottom:1px solid #e2e8f0;">₹${item.mrp.toLocaleString('en-IN')}</td>
-        <td style="text-align:right;font-weight:700;color:#0f172a;font-size:12px;padding:9px 10px;border-bottom:1px solid #e2e8f0;">₹${item.price.toLocaleString('en-IN')}</td>
-        <td style="text-align:right;font-weight:800;color:#b45309;font-size:12px;padding:9px 10px;border-bottom:1px solid #e2e8f0;">₹${itemTotal.toLocaleString('en-IN')}</td>
-      </tr>
-    `;
-  }).join('');
-
-  const html = `
-    <!DOCTYPE html>
-    <html lang="en">
-    <head>
-      <meta charset="utf-8">
-      <title>Tax Invoice #${order.order_number} — JJ Crackers</title>
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        @import url('https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=Cinzel:wght@700;800&display=swap');
-        * { box-sizing: border-box; margin: 0; padding: 0; }
-        body {
-          font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
-          background: #f1f5f9;
-          color: #1e293b;
-          padding: 24px;
-          -webkit-print-color-adjust: exact;
-          print-color-adjust: exact;
-        }
-        .invoice-card {
-          max-width: 860px;
-          margin: 0 auto;
-          background: #ffffff;
-          border-radius: 16px;
-          border: 1px solid #e2e8f0;
-          box-shadow: 0 10px 40px rgba(0,0,0,0.06);
-          padding: 36px 40px;
-        }
-        .header {
-          display: flex;
-          justify-content: space-between;
-          align-items: flex-start;
-          border-bottom: 2px solid #D4AF37;
-          padding-bottom: 24px;
-          margin-bottom: 24px;
-        }
-        .brand-title {
-          font-family: 'Cinzel', serif;
-          font-size: 26px;
-          font-weight: 800;
-          color: #b45309;
-          letter-spacing: 1px;
-        }
-        .brand-tagline {
-          font-size: 11px;
-          font-weight: 700;
-          color: #64748b;
-          text-transform: uppercase;
-          letter-spacing: 1.5px;
-          margin-top: 3px;
-        }
-        .brand-info {
-          font-size: 11px;
-          color: #475569;
-          margin-top: 8px;
-          line-height: 1.6;
-        }
-        .invoice-badge-box {
-          text-align: right;
-        }
-        .doc-type {
-          font-size: 22px;
-          font-weight: 800;
-          color: #0f172a;
-          text-transform: uppercase;
-          letter-spacing: 1px;
-        }
-        .order-badge {
-          display: inline-block;
-          margin-top: 6px;
-          font-family: monospace;
-          font-size: 14px;
-          font-weight: 700;
-          color: #b45309;
-          background: #fffbeb;
-          border: 1px solid #fde68a;
-          padding: 3px 10px;
-          border-radius: 6px;
-        }
-        .date-label {
-          font-size: 11px;
-          color: #64748b;
-          margin-top: 6px;
-        }
-        .status-pill {
-          display: inline-block;
-          margin-top: 6px;
-          font-size: 10px;
-          font-weight: 800;
-          text-transform: uppercase;
-          padding: 3px 10px;
-          border-radius: 9999px;
-          letter-spacing: 0.5px;
-        }
-        .status-confirmed { background: #dcfce7; color: #15803d; }
-        .status-pending { background: #fef9c3; color: #854d0e; }
-        .status-shipped { background: #dbeafe; color: #1d4ed8; }
-        .status-delivered { background: #ecfdf5; color: #047857; }
-        .meta-container {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
-          gap: 20px;
-          margin-bottom: 24px;
-          padding: 18px 20px;
-          background: #f8fafc;
-          border: 1px solid #e2e8f0;
-          border-radius: 12px;
-        }
-        .meta-col h4 {
-          font-size: 10px;
-          font-weight: 800;
-          text-transform: uppercase;
-          letter-spacing: 1.2px;
-          color: #64748b;
-          margin-bottom: 8px;
-        }
-        .meta-col p {
-          font-size: 12px;
-          color: #334155;
-          line-height: 1.5;
-        }
-        .meta-col .customer-name {
-          font-size: 14px;
-          font-weight: 700;
-          color: #0f172a;
-          margin-bottom: 4px;
-        }
-        table.items-table {
-          width: 100%;
-          border-collapse: collapse;
-          margin-bottom: 24px;
-        }
-        table.items-table th {
-          background: #0f172a;
-          color: #ffffff;
-          font-size: 10px;
-          font-weight: 700;
-          text-transform: uppercase;
-          letter-spacing: 0.8px;
-          padding: 10px 12px;
-          border: none;
-        }
-        table.items-table tr:nth-child(even) td {
-          background: #fcfcfd;
-        }
-        .summary-wrap {
-          display: flex;
-          justify-content: flex-end;
-          margin-bottom: 24px;
-        }
-        .summary-box {
-          width: 320px;
-          border-collapse: collapse;
-        }
-        .summary-box td {
-          padding: 6px 12px;
-          font-size: 12px;
-          color: #475569;
-        }
-        .summary-box td.amount-col {
-          text-align: right;
-          font-weight: 700;
-          color: #1e293b;
-        }
-        .summary-box tr.grand-total td {
-          border-top: 2px solid #0f172a;
-          border-bottom: 2px solid #0f172a;
-          padding: 10px 12px;
-          font-size: 15px;
-          font-weight: 800;
-          color: #0f172a;
-        }
-        .summary-box tr.grand-total td.amount-col {
-          color: #b45309;
-          font-size: 17px;
-        }
-        .bank-details {
-          padding: 14px 18px;
-          border: 1px dashed #cbd5e1;
-          border-radius: 10px;
-          background: #fffdf5;
-          margin-bottom: 20px;
-          font-size: 11px;
-          color: #475569;
-          line-height: 1.6;
-        }
-        .bank-details strong {
-          color: #0f172a;
-        }
-        .terms {
-          border-top: 1px solid #e2e8f0;
-          padding-top: 16px;
-          font-size: 10px;
-          color: #64748b;
-          text-align: center;
-          line-height: 1.6;
-        }
-        .toolbar {
-          display: flex;
-          justify-content: center;
-          gap: 12px;
-          margin-bottom: 20px;
-        }
-        .toolbar button {
-          padding: 10px 22px;
-          border-radius: 8px;
-          font-size: 13px;
-          font-weight: 700;
-          cursor: pointer;
-          transition: all 0.2s;
-        }
-        .btn-p {
-          background: #b45309;
-          color: #ffffff;
-          border: none;
-          box-shadow: 0 4px 12px rgba(180,83,9,0.25);
-        }
-        .btn-p:hover { background: #92400e; }
-        .btn-c {
-          background: #e2e8f0;
-          color: #334155;
-          border: 1px solid #cbd5e1;
-        }
-        .btn-c:hover { background: #cbd5e1; }
-        @media print {
-          body { background: #ffffff; padding: 0; }
-          .invoice-card { border: none; box-shadow: none; padding: 0; max-width: 100%; border-radius: 0; }
-          .toolbar { display: none !important; }
-          @page { margin: 12mm; size: A4; }
-        }
-      </style>
-    </head>
-    <body>
-      <div class="toolbar">
-        <button class="btn-p" onclick="window.print()">🖨️ Print Customer Invoice</button>
-        <button class="btn-c" onclick="window.close()">✕ Close Window</button>
-      </div>
-      <div class="invoice-card">
-        <div class="header">
-          <div>
-            <div class="brand-title">✦ JEGAJOTHI CRACKERS ✦</div>
-            <div class="brand-tagline">JJ Crackers — Premium Sivakasi Fireworks Direct</div>
-            <div class="brand-info">
-              1/406, Sivakasi-Vembakottai Main Road, Opp. EB Office, Vembakottai, Tamil Nadu - 626131<br>
-              ☎ +91 70923 00252 | ✉ jjcrackersworld@gmail.com | 🌐 jjcrackersworld.com
-            </div>
-          </div>
-          <div class="invoice-badge-box">
-            <div class="doc-type">TAX INVOICE</div>
-            <div class="order-badge">#${order.order_number}</div>
-            <div class="date-label">Date: ${formattedDate}</div>
-            <div class="status-pill status-${(order.status || 'pending').toLowerCase()}">Status: ${(order.status || 'PENDING').toUpperCase()}</div>
-          </div>
-        </div>
-
-        <div class="meta-container">
-          <div class="meta-col">
-            <h4>Bill To / Customer Details</h4>
-            <div class="customer-name">${escapeHtml(order.customer_name || 'Valued Customer')}</div>
-            <p><strong>Phone:</strong> ${escapeHtml(order.customer_phone || 'N/A')}</p>
-            ${order.customer_email ? `<p><strong>Email:</strong> ${escapeHtml(order.customer_email)}</p>` : ''}
-          </div>
-          <div class="meta-col">
-            <h4>Shipping & Delivery Address</h4>
-            <p>
-              ${escapeHtml(order.customer_address || 'Address provided at booking')}<br>
-              ${escapeHtml(order.customer_city || '')} ${escapeHtml(order.customer_district || '')}<br>
-              ${escapeHtml(order.customer_state || 'Tamil Nadu')} ${order.customer_pincode ? `- ${escapeHtml(order.customer_pincode)}` : ''}
-            </p>
-          </div>
-        </div>
-
-        <table class="items-table">
-          <thead>
-            <tr>
-              <th style="width:40px;text-align:center;">S.No</th>
-              <th>Product Description</th>
-              <th style="width:70px;text-align:center;">Quantity</th>
-              <th style="width:90px;text-align:right;">MRP</th>
-              <th style="width:90px;text-align:right;">Offer Rate</th>
-              <th style="width:110px;text-align:right;">Total Amount</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${rowsHtml}
-          </tbody>
-        </table>
-
-        <div class="summary-wrap">
-          <table class="summary-box">
-            <tr>
-              <td>Items Subtotal:</td>
-              <td class="amount-col">₹${itemsTotal.toLocaleString('en-IN')}</td>
-            </tr>
-            ${packingCharges > 0 ? `
-              <tr>
-                <td>Packing & Handling (3%):</td>
-                <td class="amount-col">₹${packingCharges.toLocaleString('en-IN')}</td>
-              </tr>
-            ` : ''}
-            ${order.discount_total && order.discount_total > 0 ? `
-              <tr>
-                <td>Special Festive Discount:</td>
-                <td class="amount-col" style="color:#15803d;">-₹${Number(order.discount_total).toLocaleString('en-IN')}</td>
-              </tr>
-            ` : ''}
-            <tr class="grand-total">
-              <td>Net Payable Total:</td>
-              <td class="amount-col">₹${totalAmount.toLocaleString('en-IN')}</td>
-            </tr>
-          </table>
-        </div>
-
-        <div class="bank-details">
-          <strong>Payment & Settlement Details:</strong><br>
-          Bank: Indian Overseas Bank / SBI | Account Name: <strong>JEGAJOTHI CRACKERS</strong><br>
-          GPay / PhonePe / Paytm / WhatsApp Pay: <strong>+91 70923 00252</strong> | Payment Status: <strong>${(order.payment_status || 'PENDING').toUpperCase()}</strong>
-        </div>
-
-        <div class="terms">
-          1. Goods once sold will not be returned or exchanged. &bull; 2. All disputes subject to Sivakasi Jurisdiction.<br>
-          3. Fireworks must be stored in a cool, dry place away from heat. &bull; 4. Computer-generated official customer invoice.
-        </div>
-      </div>
-      <script>
-        window.onload = function() {
-          setTimeout(function() { window.print(); }, 300);
-        };
-      </script>
-    </body>
-    </html>
-  `;
-
-  printWindow.document.write(html);
-  printWindow.document.close();
 }
 
-export interface AdminNotificationData {
-  id: string;
-  type: 'success' | 'download' | 'print' | 'info';
-  title: string;
-  message: string;
-  details?: string;
-  orderNumber?: string;
-  timestamp: number;
+function setCached(key: string, data: any) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(`jj_admin_${key}`, JSON.stringify(data));
+  } catch {}
 }
 
-// --- VIBRANT ADMIN ACTION & DOWNLOAD NOTIFICATION POPUP ---
-function AdminActionNotificationPopup({ 
-  notification, 
-  onClose,
-  onPrintAgain
-}: { 
-  notification: AdminNotificationData; 
-  onClose: () => void;
-  onPrintAgain?: () => void;
-}) {
+// --- LIGHTWEIGHT ADMIN SUCCESS TOAST ---
+function AdminToast({ message, onClose }: { message: string; onClose: () => void }) {
   useEffect(() => {
-    const timer = setTimeout(onClose, 4500);
+    const timer = setTimeout(onClose, 2800);
     return () => clearTimeout(timer);
   }, [onClose]);
 
-  const isPrint = notification.type === 'print';
-  const isDownload = notification.type === 'download';
-
   return (
     <motion.div
-      initial={{ opacity: 0, y: -40, scale: 0.95 }}
+      initial={{ opacity: 0, y: 25, scale: 0.95 }}
       animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -30, scale: 0.95 }}
-      transition={{ type: 'spring', stiffness: 350, damping: 28 }}
-      className={`fixed top-6 right-6 z-[300] flex flex-col gap-2 p-5 rounded-2xl backdrop-blur-2xl border shadow-2xl min-w-[340px] max-w-[460px] ${
-        isPrint 
-          ? 'bg-[#18150c]/95 border-[var(--color-gold)]/60 text-[#F5F5F0] shadow-[0_15px_50px_rgba(212,175,55,0.3)]'
-          : isDownload
-          ? 'bg-[#0a1628]/95 border-sky-500/50 text-[#F5F5F0] shadow-[0_15px_50px_rgba(14,165,233,0.3)]'
-          : 'bg-[#0b1d14]/95 border-emerald-500/50 text-[#F5F5F0] shadow-[0_15px_50px_rgba(16,185,129,0.3)]'
-      }`}
+      exit={{ opacity: 0, y: 15, scale: 0.95 }}
+      transition={{ duration: 0.2 }}
+      className="fixed bottom-6 right-6 z-[300] flex items-center gap-3 px-4 py-3 bg-[#161614]/95 backdrop-blur-md border border-emerald-500/40 text-white rounded-xl shadow-2xl"
     >
-      <div className="flex items-start gap-3.5">
-        {/* Animated Icon Box */}
-        <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${
-          isPrint 
-            ? 'bg-gradient-to-br from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] shadow-[0_0_20px_rgba(212,175,55,0.4)]'
-            : isDownload
-            ? 'bg-gradient-to-br from-sky-400 to-blue-600 text-white shadow-[0_0_20px_rgba(14,165,233,0.4)]'
-            : 'bg-gradient-to-br from-emerald-400 to-teal-600 text-white shadow-[0_0_20px_rgba(16,185,129,0.4)]'
-        }`}>
-          {isPrint ? (
-            <Printer size={22} className="animate-pulse" />
-          ) : isDownload ? (
-            <Download size={22} className="animate-bounce" />
-          ) : (
-            <CheckCircle2 size={22} />
-          )}
-        </div>
-
-        {/* Content */}
-        <div className="flex-1 min-w-0 pr-2">
-          <div className="flex items-center gap-2">
-            <span className={`text-[10px] font-black uppercase tracking-[0.15em] px-2 py-0.5 rounded-full ${
-              isPrint 
-                ? 'bg-[var(--color-gold)]/20 text-[var(--color-gold)] border border-[var(--color-gold)]/40'
-                : isDownload
-                ? 'bg-sky-500/20 text-sky-300 border border-sky-400/30'
-                : 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
-            }`}>
-              {isPrint ? 'INVOICE PRINT' : isDownload ? 'DOWNLOAD COMPLETE' : 'SYSTEM UPDATE'}
-            </span>
-            <span className="text-[10px] text-[#A0A090]">Just now</span>
-          </div>
-          <h4 className="font-bold text-sm text-white mt-1 leading-snug">{notification.title}</h4>
-          <p className="text-xs text-[#C5C5B5] mt-0.5 leading-relaxed break-words">{notification.message}</p>
-          {notification.details && (
-            <div className="mt-2 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-black/40 border border-white/10 text-[11px] font-mono text-amber-200">
-              {notification.details}
-            </div>
-          )}
-        </div>
-
-        {/* Close Button */}
-        <button 
-          onClick={onClose}
-          className="text-[#A0A090] hover:text-white p-1 hover:bg-white/10 rounded-lg transition-colors shrink-0"
-          title="Dismiss"
-        >
-          <X size={15} />
-        </button>
+      <div className="w-6 h-6 rounded-lg bg-emerald-500/20 text-emerald-400 flex items-center justify-center shrink-0">
+        <CheckCircle2 size={15} />
       </div>
-
-      {/* Action footer for invoice printing */}
-      {isPrint && onPrintAgain && (
-        <div className="mt-1 pt-2.5 border-t border-[var(--color-gold)]/20 flex items-center justify-between">
-          <span className="text-[10px] text-[#A0A090]">Print preview opened</span>
-          <button
-            onClick={onPrintAgain}
-            className="text-[11px] font-bold text-[var(--color-gold)] hover:underline flex items-center gap-1"
-          >
-            <Printer size={11} /> Re-open Print Dialog
-          </button>
-        </div>
-      )}
-
-      {/* Animated progress bar indicator */}
-      <motion.div 
-        initial={{ width: '100%' }}
-        animate={{ width: '0%' }}
-        transition={{ duration: 4.5, ease: 'linear' }}
-        className={`h-1 rounded-full mt-1 ${
-          isPrint ? 'bg-[var(--color-gold)]' : isDownload ? 'bg-sky-400' : 'bg-emerald-400'
-        }`}
-      />
+      <span className="text-xs font-semibold text-[#F5F5F0]">{message}</span>
+      <button onClick={onClose} className="text-[#A0A090] hover:text-white ml-2 p-0.5 cursor-pointer">
+        <X size={14} />
+      </button>
     </motion.div>
   );
 }
@@ -765,48 +309,12 @@ function AdminActionNotificationPopup({
 export default function AdminPage() {
   const { isAuthenticated, login, logout, activeTab, setActiveTab, checkSession } = useAdminStore();
   const mainContentRef = useRef<HTMLDivElement>(null);
-  const [activePopup, setActivePopup] = useState<AdminNotificationData | null>(null);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
 
-  // Show action / download / print popup notification
-  const showPopupMessage = useCallback((notif: {
-    type: 'success' | 'download' | 'print' | 'info';
-    title: string;
-    message: string;
-    details?: string;
-    orderNumber?: string;
-  }) => {
-    setActivePopup({
-      id: Math.random().toString(36).substring(2, 9),
-      type: notif.type,
-      title: notif.title,
-      message: notif.message,
-      details: notif.details,
-      orderNumber: notif.orderNumber,
-      timestamp: Date.now(),
-    });
-  }, []);
-
-  // Show success toast helper (backward compatible with all existing calls)
+  // Show unobtrusive success toast helper
   const showSuccess = useCallback((msg: string) => {
-    showPopupMessage({
-      type: 'success',
-      title: 'Action Completed',
-      message: msg,
-    });
-  }, [showPopupMessage]);
-
-  // Handler: Print Individual Customer Invoice with popup notification
-  const handlePrintCustomerInvoice = useCallback((order: any) => {
-    if (!order) return;
-    showPopupMessage({
-      type: 'print',
-      title: '🖨️ Customer Invoice Printing',
-      message: `Print dialog opened for ${order.customer_name || 'Customer'} (Order #${order.order_number}).`,
-      details: `Order #${order.order_number} • ₹${Number(order.total_amount || 0).toLocaleString('en-IN')}`,
-      orderNumber: order.order_number
-    });
-    printIndividualCustomerInvoice(order);
-  }, [showPopupMessage]);
+    setToastMessage(msg);
+  }, []);
 
   // Scroll to top when changing tabs
   const handleTabChange = useCallback((tabId: string) => {
@@ -853,17 +361,17 @@ export default function AdminPage() {
     return data.challenge.challengeToken;
   };
 
-  const [orders, setOrders] = useState<any[]>([]);
-  const [products, setProducts] = useState<any[]>([]);
-  const [enquiries, setEnquiries] = useState<any[]>([]);
-  const [messages, setMessages] = useState<any[]>([]);
-  const [combos, setCombos] = useState<any[]>([]);
+  const [orders, setOrders] = useState<any[]>(() => getCached('orders', []));
+  const [products, setProducts] = useState<any[]>(() => getCached('products', []));
+  const [enquiries, setEnquiries] = useState<any[]>(() => getCached('enquiries', []));
+  const [messages, setMessages] = useState<any[]>(() => getCached('messages', []));
+  const [combos, setCombos] = useState<any[]>(() => getCached('combos', []));
   const [errorLogs, setErrorLogs] = useState<any[]>([]);
   const [analyticsEvents, setAnalyticsEvents] = useState<any[]>([]);
   const [auditLogs, setAuditLogs] = useState<any[]>([]);
   
   // Settings & Bank Account lists
-  const [settings, setSettings] = useState<any>({
+  const [settings, setSettings] = useState<any>(() => getCached('settings', {
     global_discount: '60',
     min_order_value: '2000',
     company_name: 'JEGAJOTHI CRACKERS',
@@ -885,10 +393,10 @@ export default function AdminPage() {
     whatsapp_msg_shipped: '',
     whatsapp_msg_delivered: '',
     whatsapp_msg_cancelled: '',
-  });
-  const [bankAccounts, setBankAccounts] = useState<any[]>([]);
-  const [categories, setCategories] = useState<any[]>([]);
-  const [sliders, setSliders] = useState<any[]>([]);
+  }));
+  const [bankAccounts, setBankAccounts] = useState<any[]>(() => getCached('banks', []));
+  const [categories, setCategories] = useState<any[]>(() => getCached('categories', []));
+  const [sliders, setSliders] = useState<any[]>(() => getCached('sliders', []));
   
   // Inspected Order
   const [inspectedOrder, setInspectedOrder] = useState<any | null>(null);
@@ -1014,50 +522,72 @@ export default function AdminPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Core dashboard data needed immediately for Command Hub and layout
+      // 1. Fast core dashboard data fetch for Overview, Orders & Products
       const [o, s, cats, p] = await Promise.all([
-        adminFetch('/api/orders').then(r => r.json()).catch(() => []),
-        adminFetch('/api/settings?admin=true').then(r => r.json()).catch(() => ({})),
-        adminFetch('/api/categories?admin=true').then(r => r.json()).catch(() => []),
-        adminFetch('/api/products?admin=true&limit=500').then(r => r.json()).catch(() => ({ products: [] })),
+        adminFetch('/api/orders').then(r => r.json()).catch(() => null),
+        adminFetch('/api/settings?admin=true').then(r => r.json()).catch(() => null),
+        adminFetch('/api/categories?admin=true').then(r => r.json()).catch(() => null),
+        adminFetch('/api/products?admin=true&limit=500').then(r => r.json()).catch(() => null),
       ]);
-      setOrders(Array.isArray(o) ? o : []);
-      if (s && Object.keys(s).length > 0) setSettings(s);
-      setCategories(Array.isArray(cats) ? cats : []);
-      setProducts(Array.isArray(p) ? p : (p.products || []));
-      // Unlock UI immediately — Command Hub is ready!
-      setLoading(false);
-
-      // 2. Secondary tab data fetched asynchronously in background without blocking screen
-      Promise.all([
-        adminFetch('/api/enquiries').then(r => r.json()).catch(() => []),
-        adminFetch('/api/contact').then(r => r.json()).catch(() => []),
-        adminFetch('/api/combos').then(r => r.json()).catch(() => []),
-        adminFetch('/api/admin/tracking').then(r => r.json()).catch(() => ({ error_logs: [], analytics_events: [] })),
-        adminFetch('/api/bank-accounts').then(r => r.json()).catch(() => []),
-        adminFetch('/api/sliders').then(r => r.json()).catch(() => []),
-        adminFetch('/api/admin/approvals?type=audit').then(r => r.json()).catch(() => ({ logs: [] })),
-      ]).then(([e, m, c, t, b, slds, auditData]) => {
-        setEnquiries(Array.isArray(e) ? e : []);
-        setMessages(Array.isArray(m) ? m : []);
-        setCombos(Array.isArray(c) ? c : []);
-        setErrorLogs(t?.error_logs || []);
-        setAnalyticsEvents(t?.analytics_events || []);
-        setBankAccounts(Array.isArray(b) ? b : []);
-        setSliders(Array.isArray(slds) ? slds : []);
-        setAuditLogs(auditData?.logs || []);
-      }).catch(err => console.error('Error fetching secondary admin data:', err));
-
-      return;
+      if (Array.isArray(o)) {
+        setOrders(o);
+        setCached('orders', o);
+      }
+      if (s && Object.keys(s).length > 0) {
+        setSettings(s);
+        setCached('settings', s);
+      }
+      if (Array.isArray(cats)) {
+        setCategories(cats);
+        setCached('categories', cats);
+      }
+      if (p) {
+        const prodList = Array.isArray(p) ? p : (p.products || []);
+        setProducts(prodList);
+        setCached('products', prodList);
+      }
     } catch (err) { 
       console.error('Error fetching core admin data:', err); 
+    } finally {
+      setLoading(false);
     }
-    setLoading(false);
   };
 
   useEffect(() => { 
     if (isAuthenticated) fetchData(); 
   }, [isAuthenticated]);
+
+  // Lazy-load secondary tabs on demand when opened for maximum initial load speed
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    if (activeTab === 'enquiries' && enquiries.length === 0) {
+      adminFetch('/api/enquiries').then(r => r.json()).then(d => {
+        if (Array.isArray(d)) { setEnquiries(d); setCached('enquiries', d); }
+      }).catch(() => {});
+    } else if (activeTab === 'messages' && messages.length === 0) {
+      adminFetch('/api/contact').then(r => r.json()).then(d => {
+        if (Array.isArray(d)) { setMessages(d); setCached('messages', d); }
+      }).catch(() => {});
+    } else if (activeTab === 'combos' && combos.length === 0) {
+      adminFetch('/api/combos').then(r => r.json()).then(d => {
+        if (Array.isArray(d)) { setCombos(d); setCached('combos', d); }
+      }).catch(() => {});
+    } else if (activeTab === 'settings' && (bankAccounts.length === 0 || sliders.length === 0)) {
+      adminFetch('/api/bank-accounts').then(r => r.json()).then(d => {
+        if (Array.isArray(d)) { setBankAccounts(d); setCached('banks', d); }
+      }).catch(() => {});
+      adminFetch('/api/sliders').then(r => r.json()).then(d => {
+        if (Array.isArray(d)) { setSliders(d); setCached('sliders', d); }
+      }).catch(() => {});
+    } else if (activeTab === 'tracking' && errorLogs.length === 0) {
+      adminFetch('/api/admin/tracking').then(r => r.json()).then(t => {
+        setErrorLogs(t?.error_logs || []);
+        setAnalyticsEvents(t?.analytics_events || []);
+      }).catch(() => {});
+    } else if (activeTab === 'audit' && auditLogs.length === 0) {
+      adminFetch('/api/admin/approvals?type=audit').then(r => r.json()).then(d => setAuditLogs(d?.logs || [])).catch(() => {});
+    }
+  }, [activeTab, isAuthenticated]);
 
   // Sync inspected order when list refreshes
   useEffect(() => {
@@ -1496,14 +1026,6 @@ export default function AdminPage() {
   const handleManualReceiptDownload = async (order: any) => {
     if (!order) return;
     try {
-      showPopupMessage({
-        type: 'download',
-        title: '📥 Downloading Invoice PDF',
-        message: `Generating official invoice PDF for ${order.customer_name || 'Customer'} (Order #${order.order_number})...`,
-        details: `Order #${order.order_number} • ₹${Number(order.total_amount || 0).toLocaleString('en-IN')}`,
-        orderNumber: order.order_number
-      });
-
       const orderItems = Array.isArray(order.items) 
         ? order.items.map((i: any) => ({
             name: i.name || i.product_name || 'Fireworks Item',
@@ -1538,33 +1060,24 @@ export default function AdminPage() {
         packingCharges: packingCharges,
       });
       downloadReceipt(doc, order.order_number);
-
-      showPopupMessage({
-        type: 'success',
-        title: '✅ Invoice PDF Downloaded',
-        message: `Invoice PDF for Order #${order.order_number} (${order.customer_name}) saved to your downloads folder.`,
-        details: `Order #${order.order_number}`
-      });
     } catch (e) {
       console.error('Receipt generation error:', e);
-      showPopupMessage({
-        type: 'info',
-        title: 'Invoice Notice',
-        message: 'Opening printable browser invoice instead.',
-      });
-      handlePrintCustomerInvoice(order);
+      if (order.id) {
+        window.open(`/receipt/${order.id}`, '_blank');
+      }
     }
   };
 
   const handleResendReceiptEmail = async (order: any) => {
+    if (!order) return;
     setResendingEmailId(order.id);
     try {
       const orderItems = Array.isArray(order.items)
         ? order.items.map((i: any) => ({
             name: i.name || i.product_name || 'Fireworks Item',
-            quantity: i.quantity,
-            price: i.price,
-            mrp: i.mrp || i.original_price || i.price,
+            quantity: Number(i.quantity) || 1,
+            price: Number(i.price) || 0,
+            mrp: Number(i.mrp || i.original_price || i.price || 0),
           }))
         : [];
 
@@ -1581,15 +1094,17 @@ export default function AdminPage() {
           discountTotal: order.discount_total || 0,
         }),
       });
-      const data = await res.json();
+      const data = await res.json().catch(() => ({}));
       if (res.ok) {
-        alert(data.skipped ? 'Mock email simulated (Resend key missing)' : 'Invoice email sent successfully!');
+        const msg = data.skipped ? 'Mock email simulated (Resend key missing)' : `Receipt email sent to ${order.customer_email || order.customer_name}!`;
+        setNotificationStatus(`✅ ${msg}`);
+        showSuccess(msg);
       } else {
-        alert(`Failed to send: ${data.error}`);
+        setNotificationStatus(`❌ Failed to send email: ${data.error || 'Server error'}`);
       }
-    } catch (error) {
+    } catch (error: any) {
       console.error(error);
-      alert('Network error sending email');
+      setNotificationStatus(`❌ Error sending email: ${error?.message || 'Network error'}`);
     } finally {
       setResendingEmailId(null);
     }
@@ -2391,15 +1906,9 @@ export default function AdminPage() {
                         { key: 'status', label: 'Status' },
                         { key: 'created_at', label: 'Date' }
                       ];
-                      showPopupMessage({
-                        type: 'download',
-                        title: '📥 Orders CSV Downloaded',
-                        message: `Exported ${filteredOrders.length} customer order records to orders_log.csv.`,
-                        details: `${filteredOrders.length} records exported`
-                      });
                       downloadCSV(filteredOrders, cols, 'orders_log');
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Download CSV"
                   >
                     <Download size={14} /> <span className="hidden sm:inline">CSV</span>
@@ -2416,15 +1925,9 @@ export default function AdminPage() {
                         o.status.toUpperCase(),
                         new Date(o.created_at).toLocaleDateString('en-IN')
                       ]);
-                      showPopupMessage({
-                        type: 'print',
-                        title: '🖨️ Printing Sales Orders Log',
-                        message: `Generated printable summary report for ${filteredOrders.length} orders.`,
-                        details: `${filteredOrders.length} orders listed`
-                      });
                       printLog('Sales Orders Log', headers, rows);
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Print Log"
                   >
                     <Printer size={14} /> <span className="hidden sm:inline">Print</span>
@@ -2440,7 +1943,7 @@ export default function AdminPage() {
                         <th className="p-4">Order Code</th>
                         <th className="p-4">Customer Details</th>
                         <th className="p-4">Products count</th>
-                        <th className="p-4 text-right">Invoiced Amount</th>
+                        <th className="p-4 text-right">Order Amount</th>
                         <th className="p-4 text-center">Order Status</th>
                         <th className="p-4 text-center">Actions</th>
                       </tr>
@@ -2465,25 +1968,18 @@ export default function AdminPage() {
                           <td className="p-4 text-center">
                             <div className="flex items-center justify-center gap-1.5 flex-wrap">
                               <button 
-                                onClick={() => handlePrintCustomerInvoice(o)}
-                                className="px-2.5 py-1.5 bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-bold text-xs rounded-lg flex items-center gap-1 shadow-sm hover:brightness-110 transition-all cursor-pointer"
-                                title="Print Customer Tax Invoice"
+                                onClick={() => setInspectedOrder(o)}
+                                className="px-3 py-1.5 bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-lg font-bold text-xs text-[#F5F5F0] hover:text-[var(--color-gold)] transition-all flex items-center gap-1.5 cursor-pointer"
+                                title="Inspect Order Details"
                               >
-                                <Printer size={12} /> Print
+                                <Eye size={12} /> Inspect
                               </button>
                               <button 
                                 onClick={() => handleManualReceiptDownload(o)}
                                 className="p-1.5 bg-[#1C1C18] border border-[#2A2A24] hover:border-sky-400 hover:text-sky-300 rounded-lg text-[#A0A090] transition-colors cursor-pointer"
-                                title="Download Official PDF Invoice"
+                                title="Download Customer PDF Invoice"
                               >
                                 <Download size={13} />
-                              </button>
-                              <button 
-                                onClick={() => setInspectedOrder(o)}
-                                className="px-2.5 py-1.5 bg-[#1C1C18] border border-[#2A2A24] hover:border-[#F5F5F0] rounded-lg font-bold text-xs text-[#F5F5F0] transition-all flex items-center gap-1 cursor-pointer"
-                                title="Inspect Order Details"
-                              >
-                                <Eye size={12} /> Inspect
                               </button>
                               <button 
                                 onClick={() => handleDeleteOrder(o.id, o.order_number)}
@@ -2539,15 +2035,9 @@ export default function AdminPage() {
                         { key: 'discount_percent', label: 'Discount (%)' },
                         { key: 'in_stock', label: 'In Stock' }
                       ];
-                      showPopupMessage({
-                        type: 'download',
-                        title: '📥 Products Inventory Downloaded',
-                        message: `Exported ${filteredProducts.length} product items to product_inventory.csv.`,
-                        details: `${filteredProducts.length} items exported`
-                      });
                       downloadCSV(filteredProducts, cols, 'product_inventory');
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Download CSV"
                   >
                     <Download size={14} />
@@ -2564,15 +2054,9 @@ export default function AdminPage() {
                         `${p.discount_percent || 0}% OFF`,
                         p.in_stock ? 'IN STOCK' : 'OUT OF STOCK'
                       ]);
-                      showPopupMessage({
-                        type: 'print',
-                        title: '🖨️ Printing Products Inventory',
-                        message: `Generated printable inventory report for ${filteredProducts.length} items.`,
-                        details: `${filteredProducts.length} items listed`
-                      });
                       printLog('Product Inventory Log', headers, rows);
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Print Log"
                   >
                     <Printer size={14} />
@@ -2704,11 +2188,6 @@ export default function AdminPage() {
                     <a 
                       href="/templates/product_import_template.csv" 
                       download="product_import_template.csv"
-                      onClick={() => showPopupMessage({
-                        type: 'download',
-                        title: '📥 Template Downloaded',
-                        message: 'Product import CSV template downloaded to your device.'
-                      })}
                       className="text-[10px] text-[var(--color-gold)] hover:underline font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <Download size={11} /> Download CSV Template
@@ -2716,11 +2195,6 @@ export default function AdminPage() {
                     <a 
                       href="/templates/product_import_template.xlsx" 
                       download="product_import_template.xlsx"
-                      onClick={() => showPopupMessage({
-                        type: 'download',
-                        title: '📥 Template Downloaded',
-                        message: 'Product import Excel (.xlsx) template downloaded to your device.'
-                      })}
                       className="text-[10px] text-[var(--color-gold)]/75 hover:underline font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <Download size={11} /> Download Excel Template (.xlsx)
@@ -2984,11 +2458,6 @@ export default function AdminPage() {
                     <a 
                       href="/templates/product_import_template.csv" 
                       download="product_import_template.csv"
-                      onClick={() => showPopupMessage({
-                        type: 'download',
-                        title: '📥 Template Downloaded',
-                        message: 'Product import CSV template downloaded to your device.'
-                      })}
                       className="text-[10px] text-[var(--color-gold)] hover:underline font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <Download size={11} /> Download CSV Template
@@ -2996,11 +2465,6 @@ export default function AdminPage() {
                     <a 
                       href="/templates/product_import_template.xlsx" 
                       download="product_import_template.xlsx"
-                      onClick={() => showPopupMessage({
-                        type: 'download',
-                        title: '📥 Template Downloaded',
-                        message: 'Product import Excel (.xlsx) template downloaded to your device.'
-                      })}
                       className="text-[10px] text-[var(--color-gold)]/75 hover:underline font-bold flex items-center gap-1 cursor-pointer"
                     >
                       <Download size={11} /> Download Excel Template (.xlsx)
@@ -3091,15 +2555,9 @@ export default function AdminPage() {
                         { key: 'total_amount', label: 'Est. Amount' },
                         { key: 'created_at', label: 'Date' }
                       ];
-                      showPopupMessage({
-                        type: 'download',
-                        title: '📥 Enquiries Log Downloaded',
-                        message: `Exported ${enquiries.length} customer enquiry records to enquiries_log.csv.`,
-                        details: `${enquiries.length} records exported`
-                      });
                       downloadCSV(enquiries, cols, 'enquiries_log');
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Download CSV"
                   >
                     <Download size={14} /> <span className="hidden sm:inline">CSV</span>
@@ -3114,15 +2572,9 @@ export default function AdminPage() {
                         `₹${e.total_amount?.toLocaleString('en-IN')}`,
                         new Date(e.created_at).toLocaleString()
                       ]);
-                      showPopupMessage({
-                        type: 'print',
-                        title: '🖨️ Printing Enquiries Log',
-                        message: `Generated printable summary for ${enquiries.length} enquiries.`,
-                        details: `${enquiries.length} enquiries listed`
-                      });
                       printLog('Order Enquiries Log', headers, rows);
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Print Log"
                   >
                     <Printer size={14} /> <span className="hidden sm:inline">Print</span>
@@ -3173,15 +2625,9 @@ export default function AdminPage() {
                         { key: 'message', label: 'Message' },
                         { key: 'created_at', label: 'Date' }
                       ];
-                      showPopupMessage({
-                        type: 'download',
-                        title: '📥 Messages CSV Downloaded',
-                        message: `Exported ${messages.length} customer messages to inbox_messages.csv.`,
-                        details: `${messages.length} messages exported`
-                      });
                       downloadCSV(messages, cols, 'inbox_messages');
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Download CSV"
                   >
                     <Download size={14} /> <span className="hidden sm:inline">CSV</span>
@@ -3196,15 +2642,9 @@ export default function AdminPage() {
                         m.message,
                         new Date(m.created_at).toLocaleString()
                       ]);
-                      showPopupMessage({
-                        type: 'print',
-                        title: '🖨️ Printing Inbox Messages Log',
-                        message: `Generated printable summary for ${messages.length} inbox messages.`,
-                        details: `${messages.length} messages listed`
-                      });
                       printLog('Inbox Messages Log', headers, rows);
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Print Log"
                   >
                     <Printer size={14} /> <span className="hidden sm:inline">Print</span>
@@ -3271,15 +2711,9 @@ export default function AdminPage() {
                         { key: 'ordersCount', label: 'Orders Count' },
                         { key: 'totalSpent', label: 'Total Spent' }
                       ];
-                      showPopupMessage({
-                        type: 'download',
-                        title: '📥 Customers Database Downloaded',
-                        message: `Exported ${customersList.length} customer profile records to customer_profiles.csv.`,
-                        details: `${customersList.length} profiles exported`
-                      });
                       downloadCSV(customersList, cols, 'customer_profiles');
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Download CSV"
                   >
                     <Download size={14} /> <span className="hidden sm:inline">CSV</span>
@@ -3294,15 +2728,9 @@ export default function AdminPage() {
                         `${c.ordersCount} orders`,
                         `₹${c.totalSpent?.toLocaleString('en-IN')}`
                       ]);
-                      showPopupMessage({
-                        type: 'print',
-                        title: '🖨️ Printing Customer Profiles',
-                        message: `Generated printable summary for ${customersList.length} customer profiles.`,
-                        details: `${customersList.length} profiles listed`
-                      });
                       printLog('Customer Profiles Base', headers, rows);
                     }}
-                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold"
+                    className="p-2.5 bg-[#141412] hover:bg-[#1C1C18] border border-[#2A2A24] hover:border-[var(--color-gold)] rounded-xl text-[#A0A090] hover:text-[var(--color-gold)] transition-colors flex items-center justify-center gap-1.5 text-xs font-bold cursor-pointer"
                     title="Print Log"
                   >
                     <Printer size={14} /> <span className="hidden sm:inline">Print</span>
@@ -4117,30 +3545,23 @@ export default function AdminPage() {
                 </div>
               </div>
 
-              {/* Individual Invoice Print & Receipts Actions */}
+              {/* PDF Invoice & Email Actions */}
               <div className="pt-6 border-t border-[#2A2A24] space-y-3">
-                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
-                  <button 
-                    onClick={() => handlePrintCustomerInvoice(inspectedOrder)}
-                    className="py-3 px-3 bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 shadow-md hover:brightness-110 transition-all cursor-pointer"
-                    title="Print Individual Customer Tax Invoice"
-                  >
-                    <Printer size={14} /> Print Invoice
-                  </button>
+                <div className="flex gap-3">
                   <button 
                     onClick={() => handleManualReceiptDownload(inspectedOrder)}
-                    className="py-3 px-3 bg-[#1C1C18] hover:bg-[#252520] border border-[#2A2A24] hover:border-sky-400 text-sky-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-                    title="Download Official PDF Invoice"
+                    className="flex-1 py-3 px-4 bg-[#1C1C18] hover:bg-[#252520] border border-[#2A2A24] hover:border-sky-400 text-sky-200 font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all cursor-pointer shadow-sm"
+                    title="Download Customer PDF Invoice"
                   >
-                    <Download size={13} /> PDF Invoice
+                    <Download size={14} /> Download PDF Invoice
                   </button>
                   <button 
                     onClick={() => handleResendReceiptEmail(inspectedOrder)}
                     disabled={resendingEmailId === inspectedOrder.id}
-                    className="py-3 px-3 bg-[#1C1C18] hover:bg-[#252520] border border-[#2A2A24] hover:border-emerald-400 text-emerald-200 font-bold text-xs rounded-xl flex items-center justify-center gap-1.5 transition-all disabled:opacity-40 cursor-pointer"
-                    title="Resend Receipt Email to Customer"
+                    className="flex-1 py-3 px-4 bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-bold text-xs rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-40 cursor-pointer shadow-sm hover:brightness-105"
+                    title="Send Receipt Email to Customer"
                   >
-                    <Send size={13} /> {resendingEmailId === inspectedOrder.id ? 'Sending...' : 'Email'}
+                    <Send size={14} /> {resendingEmailId === inspectedOrder.id ? 'Sending Email...' : 'Email Receipt to Customer'}
                   </button>
                 </div>
               </div>
@@ -4539,18 +3960,12 @@ export default function AdminPage() {
         )}
       </AnimatePresence>
 
-      {/* Action / Download / Print / Success Notification Popup */}
+      {/* Non-blocking Auto-dismissing Admin Toast for administrative feedback */}
       <AnimatePresence>
-        {activePopup && (
-          <AdminActionNotificationPopup
-            notification={activePopup}
-            onClose={() => setActivePopup(null)}
-            onPrintAgain={() => {
-              if (activePopup.orderNumber) {
-                const targetOrder = orders.find(o => o.order_number === activePopup.orderNumber);
-                if (targetOrder) printIndividualCustomerInvoice(targetOrder);
-              }
-            }}
+        {toastMessage && (
+          <AdminToast
+            message={toastMessage}
+            onClose={() => setToastMessage(null)}
           />
         )}
       </AnimatePresence>
