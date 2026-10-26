@@ -6,20 +6,29 @@ import { products as staticProducts } from '@/lib/data/products';
 
 export const dynamic = 'force-dynamic';
 
-// The definitive 12 categories for JJ Crackers
+// The definitive 21 categories for JJ Crackers
 const NEW_CATEGORIES = [
-  { id: 'single-sound', label: 'Single Sound', emoji: '💥', sort_order: 1 },
-  { id: 'chakkars', label: 'Ground Chakkars', emoji: '🌀', sort_order: 2 },
+  { id: 'single-sound', label: 'Single Sound Crackers', emoji: '💥', sort_order: 1 },
+  { id: 'GROUND CHAKKAR', label: 'Ground Chakkars', emoji: '🌀', sort_order: 2 },
   { id: 'flowerpots', label: 'Flower Pots', emoji: '🌸', sort_order: 3 },
-  { id: 'rockets', label: 'Sky Rockets', emoji: '🚀', sort_order: 4 },
-  { id: 'bombs', label: 'Sound Bombs', emoji: '💣', sort_order: 5 },
-  { id: 'novelties', label: 'Fancy Novelties', emoji: '🎭', sort_order: 6 },
-  { id: 'sparklers', label: 'Sparklers', emoji: '✨', sort_order: 7 },
-  { id: 'bijili', label: 'Bijili Crackers', emoji: '⚡', sort_order: 8 },
-  { id: 'chain', label: 'Chain Crackers', emoji: '🔗', sort_order: 9 },
-  { id: 'fountains', label: 'Fountains', emoji: '⛲', sort_order: 10 },
-  { id: 'multishots', label: 'Multi Shots', emoji: '🎇', sort_order: 11 },
-  { id: 'giftbox', label: 'Gift Boxes', emoji: '🎁', sort_order: 12 },
+  { id: 'bijili', label: 'Bijili', emoji: '⚡', sort_order: 4 },
+  { id: 'THUNDER PAPER BOMP', label: 'Thunder Paper Bomb', emoji: '💣', sort_order: 5 },
+  { id: 'bombs', label: 'Thunder Sound Bomb', emoji: '🔊', sort_order: 6 },
+  { id: 'TWINKLING STAR', label: 'Twinkling Star', emoji: '🌟', sort_order: 7 },
+  { id: 'rockets', label: 'Sky Jets', emoji: '🚀', sort_order: 8 },
+  { id: 'PENCIL FUNCTIONS', label: 'Pencil Fountains', emoji: '✏️', sort_order: 9 },
+  { id: 'RED CHAIN CRACKERS', label: 'Red Chain Crackers', emoji: '🔗', sort_order: 10 },
+  { id: 'NANO FOUNTAINS', label: 'Nano Fountains', emoji: '⛲', sort_order: 11 },
+  { id: 'JOY FOUNTAINS', label: 'Joy Fountains', emoji: '🎆', sort_order: 12 },
+  { id: 'PEARL FOUNTAINS', label: 'Pearl Fountains', emoji: '💎', sort_order: 13 },
+  { id: 'AMAZING FOUNTAINS', label: 'Amazing Fountains', emoji: '✨', sort_order: 14 },
+  { id: 'ROYAL FOUNTAINS', label: 'Royal Fountains', emoji: '👑', sort_order: 15 },
+  { id: 'FANCY NOVELTIES', label: 'Fancy Novelties', emoji: '🎭', sort_order: 16 },
+  { id: 'MULTI SHOTS', label: 'Multi Shots', emoji: '🎇', sort_order: 17 },
+  { id: 'SKY EXPO - MULTI SHOTS (PREMIUM)', label: 'Sky Expo Multi Shots (Premium)', emoji: '🏆', sort_order: 18 },
+  { id: 'SPARKLERS', label: 'Sparklers', emoji: '✨', sort_order: 19 },
+  { id: 'MATCH BOX', label: 'Match Box', emoji: '📦', sort_order: 20 },
+  { id: 'GIFT BOXES', label: 'Gift Boxes', emoji: '🎁', sort_order: 21 },
 ];
 
 // Map old category IDs to clean new ones

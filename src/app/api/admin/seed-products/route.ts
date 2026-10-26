@@ -26,6 +26,7 @@ export async function POST(req: Request) {
 
     // Map static products to Supabase schema
     const productsToInsert = staticProducts.map((p, index) => ({
+      id: p.id,
       name_en: p.name_en,
       name_ta: p.name_ta || p.name_en,
       slug: p.slug || p.name_en.toLowerCase().replace(/[^a-z0-9]+/g, '-') + '-' + index,
@@ -34,7 +35,7 @@ export async function POST(req: Request) {
       mrp: p.mrp,
       discount_percent: p.discount_percent || 0,
       badge_text: p.badge_text || null,
-      image_url: p.image_url || `/products/${p.slug}.jpg`,
+      image_url: p.image_url || `/product-assets/${p.id}.jpg`,
       in_stock: p.in_stock !== undefined ? p.in_stock : true,
       is_featured: p.is_featured || false,
       is_eco_friendly: false,
@@ -50,7 +51,7 @@ export async function POST(req: Request) {
       const batch = productsToInsert.slice(i, i + batchSize);
       const { data, error } = await supabase
         .from('products')
-        .upsert(batch, { onConflict: 'slug' })
+        .upsert(batch, { onConflict: 'id' })
         .select();
 
       if (error) {

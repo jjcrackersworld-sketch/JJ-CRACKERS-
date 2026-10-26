@@ -605,6 +605,9 @@ export default function AdminPage() {
   };
 
   const seedProducts = async () => {
+    if (!window.confirm('⚠️ WARNING: Are you sure you want to re-seed the catalog? This will enforce the official 150-product list.')) {
+      return;
+    }
     setSeeding(true); 
     setSeedStatus('Seeding all products from JSON price list into Database...');
     try {
