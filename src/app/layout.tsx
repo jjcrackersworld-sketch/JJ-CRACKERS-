@@ -5,9 +5,13 @@ import { Navbar } from '@/components/layout/Navbar';
 import { Footer } from '@/components/layout/Footer';
 import { ToastContainer } from '@/components/ui/Toast';
 import { MarketingHead } from '@/components/layout/MarketingHead';
+import { MaintenancePage } from '@/components/MaintenancePage';
 import "./globals.css";
 
 import { ClientEffects } from '@/components/effects/ClientEffects';
+
+// ⚡ MAINTENANCE MODE — set to false to restore the live site
+const MAINTENANCE_MODE = true;
 
 export const viewport: Viewport = {
   width: 'device-width',
@@ -237,14 +241,20 @@ export default function RootLayout({
         />
 
         <ThemeProvider attribute="class" defaultTheme="dark" enableSystem>
-          <MarketingHead />
-          <ClientEffects />
-          <Navbar />
-          <main className="pt-20 min-h-screen">
-            {children}
-          </main>
-           <Footer />
-          <ToastContainer />
+          {MAINTENANCE_MODE ? (
+            <MaintenancePage />
+          ) : (
+            <>
+              <MarketingHead />
+              <ClientEffects />
+              <Navbar />
+              <main className="pt-20 min-h-screen">
+                {children}
+              </main>
+               <Footer />
+              <ToastContainer />
+            </>
+          )}
         </ThemeProvider>
       </body>
     </html>
