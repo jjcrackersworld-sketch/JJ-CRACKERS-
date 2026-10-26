@@ -259,7 +259,7 @@ function ProductCardInner({ product, viewMode = 'grid' }: ProductCardProps) {
             src={imageSrc}
             alt={product.name_en}
             className={`absolute inset-0 w-full h-full object-cover transition-transform duration-700 ${product.in_stock ? 'group-hover:scale-110' : 'opacity-40 grayscale-[20%]'}`}
-            loading="eager"
+            loading="lazy"
             decoding="async"
             onError={handleImgError}
           />

@@ -9,9 +9,8 @@ import { useState } from 'react';
 const footerLinks = {
   shop: [
     { label: 'All Products', href: '/products' },
-    { label: 'Combo Packs', href: '/combos' },
     { label: 'Gift Boxes', href: '/cracker-gift-boxes' },
-    { label: 'Combo Specials', href: '/cracker-combo-packs' },
+    { label: 'Best Crackers', href: '/best-crackers-to-buy' },
   ],
   explore: [
     { label: 'Sivakasi Crackers', href: '/sivakasi-crackers' },

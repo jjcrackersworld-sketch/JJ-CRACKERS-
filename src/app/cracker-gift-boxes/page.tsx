@@ -113,9 +113,9 @@ export default function CrackerGiftBoxesPage() {
               Browse our ready-made gift boxes or contact us for custom corporate gift requirements.
             </p>
             <div className="flex flex-col sm:flex-row items-center justify-center gap-4">
-              <Link href="/combos">
+              <Link href="/products">
                 <button className="px-8 py-4 rounded-xl bg-gradient-to-r from-[var(--color-gold-light)] via-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-bold text-base flex items-center gap-2 hover:scale-105 transition-all shadow-lg cursor-pointer">
-                  View Gift Boxes <ArrowRight size={18} />
+                  View Products & Gift Boxes <ArrowRight size={18} />
                 </button>
               </Link>
               <Link href="/contact">

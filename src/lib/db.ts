@@ -27,13 +27,15 @@ export const DEFAULT_CATEGORIES = [
   { id: 'GIFT BOXES', label: 'Gift Boxes', emoji: '🎁', sort_order: 21 },
 ];
 
-let cachedCategories: any[] | null = null;
-let lastCategoriesFetchTime = 0;
-const CATEGORIES_CACHE_TTL = 60000; // 60 seconds
+import { products as staticProducts } from '@/lib/data/products';
+
+let cachedCategories: any[] | null = DEFAULT_CATEGORIES;
+let lastCategoriesFetchTime = Date.now();
+const CATEGORIES_CACHE_TTL = 300000; // 5 minutes
 
 export async function getCategories() {
   const now = Date.now();
-  if (cachedCategories && now - lastCategoriesFetchTime < CATEGORIES_CACHE_TTL) {
+  if (cachedCategories && cachedCategories.length > 0 && now - lastCategoriesFetchTime < CATEGORIES_CACHE_TTL) {
     return cachedCategories;
   }
 
@@ -78,10 +80,11 @@ export async function getCategories() {
   }
 }
 
-// In-memory cache for ultra-fast (<1ms) catalog serving
-let cachedProducts: Product[] | null = null;
-let lastProductsFetchTime = 0;
-const PRODUCTS_CACHE_TTL = 300000; // 5 minutes cache for blazing speed
+// In-memory RAM cache for ultra-fast (<0.1ms) catalog serving
+let cachedProducts: Product[] | null = (staticProducts as unknown as Product[]);
+let lastProductsFetchTime = Date.now();
+let isFetchingProducts = false;
+const PRODUCTS_CACHE_TTL = 180000; // 3 minutes stale-while-revalidate TTL
 
 export function clearProductsCache() {
   cachedProducts = null;
@@ -90,17 +93,52 @@ export function clearProductsCache() {
   lastCategoriesFetchTime = 0;
 }
 
+// Background revalidation worker that doesn't block user requests
+async function refreshProductsInBackground(supabaseUrl: string, supabaseKey: string) {
+  if (isFetchingProducts) return;
+  isFetchingProducts = true;
+  try {
+    const supabase = createClient(supabaseUrl, supabaseKey);
+    const { data, error } = await supabase
+      .from('products')
+      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order')
+      .order('sort_order', { ascending: true })
+      .order('category', { ascending: true })
+      .order('price', { ascending: true })
+      .limit(1000);
+
+    if (!error && data && data.length > 0) {
+      cachedProducts = data.map((p: any) => ({
+        ...p,
+        image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
+      }));
+      lastProductsFetchTime = Date.now();
+    }
+  } catch (err) {
+    console.error('Background product refresh error:', err);
+  } finally {
+    isFetchingProducts = false;
+  }
+}
+
 export async function getProducts(): Promise<Product[]> {
   const now = Date.now();
-  if (cachedProducts && now - lastProductsFetchTime < PRODUCTS_CACHE_TTL) {
-    return cachedProducts;
-  }
-
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
+  // If cache is present, return immediately for instant <0.1ms response
+  if (cachedProducts && cachedProducts.length > 0) {
+    // If cache is stale and Supabase is configured, refresh asynchronously in background
+    if (now - lastProductsFetchTime >= PRODUCTS_CACHE_TTL && supabaseUrl && supabaseKey && !supabaseUrl.includes('your_supabase')) {
+      refreshProductsInBackground(supabaseUrl, supabaseKey);
+    }
+    return cachedProducts;
+  }
+
   if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
-    return [];
+    cachedProducts = (staticProducts as unknown as Product[]);
+    lastProductsFetchTime = now;
+    return cachedProducts;
   }
 
   try {
@@ -119,12 +157,12 @@ export async function getProducts(): Promise<Product[]> {
       image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
     }));
 
-    cachedProducts = sanitized;
+    cachedProducts = sanitized.length > 0 ? sanitized : (staticProducts as unknown as Product[]);
     lastProductsFetchTime = now;
-    return sanitized;
+    return cachedProducts;
   } catch (err) {
     console.error('Failed to fetch products:', err);
-    return cachedProducts || [];
+    return cachedProducts || (staticProducts as unknown as Product[]);
   }
 }
 

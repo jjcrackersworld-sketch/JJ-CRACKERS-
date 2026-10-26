@@ -184,8 +184,8 @@ export default function BestCrackersToBuyPage() {
               <Link href="/products" className="px-8 py-3.5 rounded-xl bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-bold text-sm hover:scale-105 transition-transform shadow-lg">
                 View Full Catalog
               </Link>
-              <Link href="/combos" className="px-8 py-3.5 rounded-xl border border-[var(--color-gold)]/40 text-[var(--color-gold)] font-bold text-sm hover:bg-[var(--color-gold)]/10 transition-colors">
-                View Combo Packs
+              <Link href="/cracker-gift-boxes" className="px-8 py-3.5 rounded-xl border border-[var(--color-gold)]/40 text-[var(--color-gold)] font-bold text-sm hover:bg-[var(--color-gold)]/10 transition-colors">
+                View Gift Boxes
               </Link>
             </div>
           </ScrollFadeInUp>

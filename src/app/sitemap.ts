@@ -19,12 +19,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: 'daily',
       priority: 0.9,
     },
-    {
-      url: `${baseUrl}/combos`,
-      lastModified: now,
-      changeFrequency: 'daily',
-      priority: 0.9,
-    },
     // Search-intent landing pages
     {
       url: `${baseUrl}/sivakasi-crackers`,
@@ -52,12 +46,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     },
     {
       url: `${baseUrl}/cracker-gift-boxes`,
-      lastModified: now,
-      changeFrequency: 'weekly',
-      priority: 0.85,
-    },
-    {
-      url: `${baseUrl}/cracker-combo-packs`,
       lastModified: now,
       changeFrequency: 'weekly',
       priority: 0.85,

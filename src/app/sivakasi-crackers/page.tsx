@@ -152,9 +152,9 @@ export default function SivakasiCrackersPage() {
                   Browse All Products <ArrowRight size={18} />
                 </button>
               </Link>
-              <Link href="/combos">
+              <Link href="/cracker-gift-boxes">
                 <button className="px-8 py-4 rounded-xl border-2 border-[var(--color-gold)]/50 text-[var(--color-gold)] font-bold text-base hover:bg-[var(--color-gold)]/5 hover:scale-105 active:scale-[0.98] transition-all cursor-pointer">
-                  View Combo Packs
+                  View Gift Boxes
                 </button>
               </Link>
             </div>

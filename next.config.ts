@@ -66,6 +66,20 @@ const nextConfig: NextConfig = {
       },
     ];
   },
+  async redirects() {
+    return [
+      {
+        source: '/combos',
+        destination: '/products',
+        permanent: true,
+      },
+      {
+        source: '/cracker-combo-packs',
+        destination: '/products',
+        permanent: true,
+      },
+    ];
+  },
   async rewrites() {
     return [
       {

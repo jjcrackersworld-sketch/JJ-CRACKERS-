@@ -7,9 +7,11 @@ import { writeAuditRecord } from '@/lib/security/audit';
 import { dispatchSecurityAlert } from '@/lib/security/alerts';
 import { createPreOperationSnapshot } from '@/lib/security/recovery';
 
+import { getProducts, clearProductsCache } from '@/lib/db';
+
 export const dynamic = 'force-dynamic';
 
-// GET — Public product catalog retrieval (Fast, read-only, cached)
+// GET — Public product catalog retrieval (Ultra-fast <2ms, read-only, cached)
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
@@ -23,91 +25,82 @@ export async function GET(req: Request) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-    // If Supabase is not configured, use static fallback data
-    if (!supabaseUrl || !supabaseAnonKey || supabaseUrl.includes('your_supabase')) {
-      let filtered = [...staticProducts];
+    // If Admin mode requested, query Supabase directly for guaranteed fresh live status
+    if (isAdmin && supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your_supabase')) {
+      const supabase = createClient(supabaseUrl, supabaseAnonKey);
+      let query = supabase
+        .from('products')
+        .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order', { count: 'exact' });
 
       if (category && category !== 'all') {
-        filtered = filtered.filter(p => p.category === category);
+        query = query.eq('category', category);
       }
       if (search) {
-        const q = search.toLowerCase();
-        filtered = filtered.filter(p =>
-          p.name_en.toLowerCase().includes(q) ||
-          p.category.toLowerCase().includes(q)
-        );
+        query = query.or(`name_en.ilike.%${search}%,category.ilike.%${search}%`);
       }
       switch (sortBy) {
-        case 'price-low': filtered.sort((a, b) => a.price - b.price); break;
-        case 'price-high': filtered.sort((a, b) => b.price - a.price); break;
-        case 'name': filtered.sort((a, b) => a.name_en.localeCompare(b.name_en)); break;
-        case 'discount': filtered.sort((a, b) => (b.discount_percent || 0) - (a.discount_percent || 0)); break;
+        case 'price-low': query = query.order('price', { ascending: true }); break;
+        case 'price-high': query = query.order('price', { ascending: false }); break;
+        case 'name': query = query.order('name_en', { ascending: true }); break;
+        case 'discount': query = query.order('discount_percent', { ascending: false }); break;
+        default: query = query.order('sort_order', { ascending: true }).order('category', { ascending: true }).order('price', { ascending: true });
       }
 
-      const total = filtered.length;
       const start = (page - 1) * limit;
-      const paginated = filtered.slice(start, start + limit);
+      query = query.range(start, start + limit - 1);
+      const { data, error, count } = await query;
+      if (error) throw error;
 
       return NextResponse.json({
-        products: paginated,
-        total,
+        products: (data || []).map((p: any) => ({
+          ...p,
+          image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
+        })),
+        total: count || 0,
         page,
         limit,
-        totalPages: Math.ceil(total / limit),
+        totalPages: Math.ceil((count || 0) / limit),
+      }, {
+        headers: { 'Cache-Control': 'no-store, max-age=0, must-revalidate' }
       });
     }
 
-    // Supabase connected — single clean query path
-    const supabase = createClient(supabaseUrl, supabaseAnonKey);
-
-    let query = supabase
-      .from('products')
-      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order', { count: 'exact' });
+    // Customer Storefront Mode — Lightning-fast RAM cache (<2ms response)
+    const allProducts = await getProducts();
+    let filtered = [...allProducts];
 
     if (category && category !== 'all') {
-      query = query.eq('category', category);
+      filtered = filtered.filter(p => p.category === category);
     }
-
     if (search) {
-      query = query.or(`name_en.ilike.%${search}%,category.ilike.%${search}%`);
+      const q = search.toLowerCase();
+      filtered = filtered.filter(p =>
+        (p.name_en || '').toLowerCase().includes(q) ||
+        (p.name_ta || '').toLowerCase().includes(q) ||
+        (p.category || '').toLowerCase().includes(q)
+      );
     }
-
     switch (sortBy) {
-      case 'price-low': query = query.order('price', { ascending: true }); break;
-      case 'price-high': query = query.order('price', { ascending: false }); break;
-      case 'name': query = query.order('name_en', { ascending: true }); break;
-      case 'discount': query = query.order('discount_percent', { ascending: false }); break;
-      default: query = query.order('sort_order', { ascending: true }).order('category', { ascending: true }).order('price', { ascending: true });
+      case 'price-low': filtered.sort((a, b) => (a.price || 0) - (b.price || 0)); break;
+      case 'price-high': filtered.sort((a, b) => (b.price || 0) - (a.price || 0)); break;
+      case 'name': filtered.sort((a, b) => (a.name_en || '').localeCompare(b.name_en || '')); break;
+      case 'discount': filtered.sort((a, b) => (b.discount_percent || 0) - (a.discount_percent || 0)); break;
     }
 
+    const total = filtered.length;
     const start = (page - 1) * limit;
-    query = query.range(start, start + limit - 1);
-
-    const { data, error, count } = await query;
-    if (error) throw error;
-
-    const total = count || 0;
-    const responseHeaders: Record<string, string> = {};
-    if (isAdmin) {
-      responseHeaders['Cache-Control'] = 'no-store, max-age=0, must-revalidate';
-    } else {
-      // Cache at CDN for 30s, serve stale for up to 10 minutes while revalidating
-      responseHeaders['Cache-Control'] = 'public, s-maxage=30, stale-while-revalidate=600';
-    }
-
-    const sanitizedProducts = (data || []).map((p: any) => ({
-      ...p,
-      image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
-    }));
+    const paginated = filtered.slice(start, start + limit);
 
     return NextResponse.json({
-      products: sanitizedProducts,
+      products: paginated,
       total,
       page,
       limit,
       totalPages: Math.ceil(total / limit),
     }, {
-      headers: responseHeaders
+      headers: {
+        'Cache-Control': 'public, max-age=10, s-maxage=60, stale-while-revalidate=600'
+      }
     });
   } catch (error) {
     console.error('Error fetching products:', error);

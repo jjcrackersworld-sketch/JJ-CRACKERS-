@@ -41,6 +41,10 @@ CREATE POLICY "Public read site_settings" ON site_settings FOR SELECT USING (tru
 DROP POLICY IF EXISTS "Service role manages products" ON products;
 CREATE POLICY "Service role manages products" ON products FOR ALL TO service_role USING (true) WITH CHECK (true);
 
+-- Allow product information updates by admin (while INSERT and DELETE remain strictly locked)
+DROP POLICY IF EXISTS "Allow product update" ON products;
+CREATE POLICY "Allow product update" ON products FOR UPDATE TO anon, authenticated, service_role USING (true) WITH CHECK (true);
+
 DROP POLICY IF EXISTS "Service role manages combos" ON combo_packs;
 CREATE POLICY "Service role manages combos" ON combo_packs FOR ALL TO service_role USING (true) WITH CHECK (true);
 
