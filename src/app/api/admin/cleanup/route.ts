@@ -222,22 +222,16 @@ export async function POST(req: Request) {
     }
 
     // ═══════════════════════════════════════════
-    // 4.5 CLEANUP: Remove products not in canonical catalog
+    // 4.5 CLEANUP: Report custom admin products (Protected: Never delete without explicit approval)
     // ═══════════════════════════════════════════
     const canonicalSlugs = new Set(staticProducts.map(p => p.slug));
     const { data: currentCatalog } = await supabase.from('products').select('id,name_en,slug');
     if (currentCatalog) {
-      const rogue = currentCatalog.filter(p => !canonicalSlugs.has(p.slug));
-      if (rogue.length > 0) {
-        const rogueIds = rogue.map(p => p.id);
-        const { error: rogueErr } = await supabase.from('products').delete().in('id', rogueIds);
-        if (!rogueErr) {
-          report.push(`✅ Removed ${rogue.length} unauthorized/legacy products not in official catalog`);
-        } else {
-          report.push(`⚠️ Failed to remove rogue products: ${rogueErr.message}`);
-        }
+      const customProducts = currentCatalog.filter(p => !canonicalSlugs.has(p.slug));
+      if (customProducts.length > 0) {
+        report.push(`ℹ️ Preserved ${customProducts.length} custom admin products (Protected from automatic deletion)`);
       } else {
-        report.push('✅ All products strictly match the official JJ Crackers catalog');
+        report.push('✅ Catalog is consistent with baseline');
       }
     }
 

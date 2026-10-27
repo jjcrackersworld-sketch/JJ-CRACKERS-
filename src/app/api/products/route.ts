@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { products as staticProducts } from '@/lib/data/products';
 import { requireAdmin, getClientIp } from '@/lib/security/auth';
@@ -174,7 +175,6 @@ export async function POST(req: Request) {
 
     clearProductsCache();
     try {
-      const { revalidatePath } = await import('next/cache');
       revalidatePath('/products');
       revalidatePath('/');
       revalidatePath('/enquiry');
@@ -252,7 +252,6 @@ export async function DELETE(req: Request) {
 
     clearProductsCache();
     try {
-      const { revalidatePath } = await import('next/cache');
       revalidatePath('/products');
       revalidatePath('/');
       revalidatePath('/enquiry');

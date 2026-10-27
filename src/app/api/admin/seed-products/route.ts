@@ -94,17 +94,8 @@ export async function POST(req: Request) {
       }
     }
 
-    // Safeguard: Remove any products that are not part of canonical catalog
-    const canonicalSlugs = new Set(staticProducts.map(p => p.slug));
-    const { data: currentRows } = await supabase.from('products').select('id,slug');
+    // Safeguard: Protect all custom and existing products from deletion
     let rogueDeleted = 0;
-    if (currentRows) {
-      const rogueIds = currentRows.filter(r => !canonicalSlugs.has(r.slug)).map(r => r.id);
-      if (rogueIds.length > 0) {
-        const { data: delData } = await supabase.from('products').delete().in('id', rogueIds).select('id');
-        rogueDeleted = delData?.length || 0;
-      }
-    }
 
     await writeAuditRecord({
       timestamp: new Date().toISOString(),

@@ -132,8 +132,7 @@ export function verifyAdminToken(token: string): { valid: boolean; session?: Adm
   // 1. Direct Password or Master token match
   if (
     cleanToken === adminPassword ||
-    cleanToken === Buffer.from(adminPassword).toString('base64') ||
-    cleanToken === 'admin'
+    cleanToken === Buffer.from(adminPassword).toString('base64')
   ) {
     return {
       valid: true,
@@ -148,37 +147,48 @@ export function verifyAdminToken(token: string): { valid: boolean; session?: Adm
     };
   }
 
-  // 2. HMAC Signed Token (jjsec.)
+  // 2. HMAC Signed Token (jjsec.<payloadB64>.<signature>)
   if (cleanToken.startsWith('jjsec.')) {
     const parts = cleanToken.split('.');
     if (parts.length === 3) {
       const [, payloadB64, signature] = parts;
       try {
-        const sessionStr = Buffer.from(payloadB64, 'base64url').toString('utf8');
-        const session: AdminSession = JSON.parse(sessionStr);
+        const expectedSig = crypto
+          .createHmac('sha256', HMAC_SECRET)
+          .update(payloadB64)
+          .digest('base64url');
 
-        // Accept if session structure is valid (with 30-day extended lifetime)
-        if (session && (session.role === 'super_admin' || session.role === 'catalog_admin')) {
-          return {
-            valid: true,
-            session: {
-              ...session,
-              expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
-              lastReauthAt: Date.now(),
-            },
-          };
+        // Timing-safe signature verification to prevent timing attacks
+        const sigBuf = Buffer.from(signature);
+        const expBuf = Buffer.from(expectedSig);
+        if (sigBuf.length === expBuf.length && crypto.timingSafeEqual(sigBuf, expBuf)) {
+          const sessionStr = Buffer.from(payloadB64, 'base64url').toString('utf8');
+          const session: AdminSession = JSON.parse(sessionStr);
+
+          // Verify session expiration
+          if (session.expiresAt && Date.now() > session.expiresAt) {
+            return { valid: false, error: 'Session expired. Please log in again.' };
+          }
+
+          if (session && (session.role === 'super_admin' || session.role === 'catalog_admin')) {
+            return {
+              valid: true,
+              session,
+            };
+          }
         }
       } catch {
-        // Fallback below
+        return { valid: false, error: 'Malformed token payload' };
       }
     }
+    return { valid: false, error: 'Invalid cryptographic signature' };
   }
 
   // 3. Legacy Base64 Token Format (admin:<ts>:<password>)
   try {
     const decoded = Buffer.from(cleanToken, 'base64').toString('utf8');
     const parts = decoded.split(':');
-    if (parts[0] === 'admin') {
+    if (parts[0] === 'admin' && parts[2] === adminPassword) {
       return {
         valid: true,
         session: {
@@ -192,21 +202,6 @@ export function verifyAdminToken(token: string): { valid: boolean; session?: Adm
       };
     }
   } catch {}
-
-  // 4. Any non-empty authenticated token string from an active browser session
-  if (cleanToken.length >= 8) {
-    return {
-      valid: true,
-      session: {
-        tokenId: 'session-' + Date.now(),
-        role: 'super_admin',
-        issuedAt: Date.now(),
-        expiresAt: Date.now() + 30 * 24 * 60 * 60 * 1000,
-        lastReauthAt: Date.now(),
-        ip: '127.0.0.1',
-      },
-    };
-  }
 
   return { valid: false, error: 'Invalid admin credentials' };
 }

@@ -1,14 +1,20 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
+import { requireAdmin } from '@/lib/security/auth';
 import fs from 'fs';
 import path from 'path';
 
 export const dynamic = 'force-dynamic';
 
-// Max file size: 10MB
-const MAX_FILE_SIZE = 10 * 1024 * 1024;
+// Max file size: 5MB
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+const ALLOWED_MIME_TYPES = new Set(['image/jpeg', 'image/png', 'image/webp', 'image/gif']);
 
 export async function POST(req: Request) {
+  // Enforce admin authentication
+  const auth = requireAdmin(req, 'LOW');
+  if (!auth.authorized) return auth.response;
+
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -21,7 +27,11 @@ export async function POST(req: Request) {
     }
 
     if (file.size > MAX_FILE_SIZE) {
-      return NextResponse.json({ error: 'File size exceeds 10MB limit' }, { status: 400 });
+      return NextResponse.json({ error: 'File size exceeds 5MB limit' }, { status: 400 });
+    }
+
+    if (!ALLOWED_MIME_TYPES.has(file.type)) {
+      return NextResponse.json({ error: 'Invalid file type. Only JPEG, PNG, WebP, and GIF images are allowed.' }, { status: 400 });
     }
 
     // Determine extension and mime type
