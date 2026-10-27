@@ -103,3 +103,26 @@ CREATE POLICY "Admin approvals access" ON catalog_approvals FOR ALL TO anon, aut
 -- 8. INDEXES FOR HIGH-SPEED PRODUCT AND CATEGORY QUERIES
 CREATE INDEX IF NOT EXISTS idx_products_category_sort ON products(category, sort_order);
 CREATE INDEX IF NOT EXISTS idx_products_slug ON products(slug);
+
+-- 9. ENABLE REALTIME BROADCAST ON PRODUCTS, CATEGORIES, SITE SETTINGS
+DO $$
+BEGIN
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE products;
+  EXCEPTION WHEN duplicate_object THEN
+    -- Already in publication
+    NULL;
+  END;
+
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE categories;
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
+
+  BEGIN
+    ALTER PUBLICATION supabase_realtime ADD TABLE site_settings;
+  EXCEPTION WHEN duplicate_object THEN
+    NULL;
+  END;
+END $$;

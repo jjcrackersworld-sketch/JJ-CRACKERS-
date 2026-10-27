@@ -1224,7 +1224,11 @@ export default function AdminPage() {
     const nextStock = !product.in_stock;
     
     // Update local state immediately for instant feedback
-    setProducts((prev: any[]) => prev.map((p: any) => p.id === product.id ? { ...p, in_stock: nextStock } : p));
+    setProducts((prev: any[]) => {
+      const updated = prev.map((p: any) => p.id === product.id ? { ...p, in_stock: nextStock } : p);
+      setCached('products', updated);
+      return updated;
+    });
     
     try {
       const res = await adminFetch(`/api/products/${product.id}`, {
@@ -1234,17 +1238,33 @@ export default function AdminPage() {
       });
       
       if (res.ok) {
+        const saved = await res.json().catch(() => null);
+        if (saved) {
+          setProducts((prev: any[]) => {
+            const updated = prev.map((p: any) => p.id === product.id ? { ...p, ...saved } : p);
+            setCached('products', updated);
+            return updated;
+          });
+        }
         showSuccess(`⚡ ${product.name_en}: marked as ${nextStock ? 'In Stock' : 'Out of Stock'}`);
       } else {
         const d = await res.json().catch(() => ({}));
         // Revert local state on error
-        setProducts((prev: any[]) => prev.map((p: any) => p.id === product.id ? { ...p, in_stock: product.in_stock } : p));
+        setProducts((prev: any[]) => {
+          const reverted = prev.map((p: any) => p.id === product.id ? { ...p, in_stock: product.in_stock } : p);
+          setCached('products', reverted);
+          return reverted;
+        });
         showSuccess(`❌ ${d.error || 'Failed to update stock status'}`);
       }
     } catch (err: any) {
       console.error(err);
       // Revert local state on error
-      setProducts((prev: any[]) => prev.map((p: any) => p.id === product.id ? { ...p, in_stock: product.in_stock } : p));
+      setProducts((prev: any[]) => {
+        const reverted = prev.map((p: any) => p.id === product.id ? { ...p, in_stock: product.in_stock } : p);
+        setCached('products', reverted);
+        return reverted;
+      });
       showSuccess(`❌ ${err?.message || 'Network error updating stock status'}`);
     }
   };
@@ -3716,6 +3736,38 @@ export default function AdminPage() {
                   </div>
                 </div>
 
+                <div className="grid sm:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block text-[9px] font-bold text-[#A0A090] mb-1.5 uppercase tracking-wider">Badge Text (Optional)</label>
+                    <input 
+                      value={currentProduct.badge_text || ''} 
+                      onChange={(e) => setCurrentProduct({...currentProduct, badge_text: e.target.value})} 
+                      placeholder="e.g. 🔥 60% OFF, BESTSELLER" 
+                      className="w-full bg-[#1C1C18] border border-[#2A2A24] rounded-xl px-3 py-2.5 text-xs focus:border-[var(--color-gold)] focus:outline-none" 
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-[9px] font-bold text-[#A0A090] mb-1.5 uppercase tracking-wider">Catalog Sort Order</label>
+                    <input 
+                      type="number" 
+                      value={currentProduct.sort_order ?? 0} 
+                      onChange={(e) => setCurrentProduct({...currentProduct, sort_order: parseInt(e.target.value) || 0})} 
+                      className="w-full bg-[#1C1C18] border border-[#2A2A24] rounded-xl px-3 py-2.5 text-xs focus:border-[var(--color-gold)] focus:outline-none" 
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-[9px] font-bold text-[#A0A090] mb-1.5 uppercase tracking-wider">Product Description (EN)</label>
+                  <textarea 
+                    rows={2} 
+                    value={currentProduct.description_en || ''} 
+                    onChange={(e) => setCurrentProduct({...currentProduct, description_en: e.target.value})} 
+                    placeholder="Factory direct Sivakasi pyrotechnic fireworks description..." 
+                    className="w-full bg-[#1C1C18] border border-[#2A2A24] rounded-xl px-3 py-2 text-xs focus:border-[var(--color-gold)] focus:outline-none resize-none text-[#F5F5F0]" 
+                  />
+                </div>
+
                 <div className="flex gap-6 pt-2">
                   <label className="flex items-center gap-2.5 cursor-pointer font-bold">
                     <input type="checkbox" checked={currentProduct.in_stock} onChange={(e) => setCurrentProduct({...currentProduct, in_stock: e.target.checked})} className="rounded bg-[#1C1C18] border-[#2A2A24]" />
@@ -3724,6 +3776,10 @@ export default function AdminPage() {
                   <label className="flex items-center gap-2.5 cursor-pointer font-bold">
                     <input type="checkbox" checked={currentProduct.is_featured} onChange={(e) => setCurrentProduct({...currentProduct, is_featured: e.target.checked})} className="rounded bg-[#1C1C18] border-[#2A2A24]" />
                     Featured item
+                  </label>
+                  <label className="flex items-center gap-2.5 cursor-pointer font-bold">
+                    <input type="checkbox" checked={currentProduct.is_eco_friendly} onChange={(e) => setCurrentProduct({...currentProduct, is_eco_friendly: e.target.checked})} className="rounded bg-[#1C1C18] border-[#2A2A24]" />
+                    Eco-Friendly
                   </label>
                 </div>
 

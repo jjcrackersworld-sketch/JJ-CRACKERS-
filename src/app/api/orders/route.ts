@@ -56,11 +56,14 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: 'Full Delivery Address is required' }, { status: 400 });
     }
 
+    if (!Array.isArray(body.items) || body.items.length === 0) {
+      return NextResponse.json({ error: 'Order must contain at least one item' }, { status: 400 });
+    }
+
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
     if (!supabaseUrl || supabaseUrl.includes('your_supabase')) {
-      // Return mock order for demo
       const orderNumber = generateOrderNumber();
       return NextResponse.json({
         id: crypto.randomUUID(),
@@ -81,6 +84,99 @@ export async function POST(req: Request) {
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
+
+    // --- AUTHORITATIVE SERVER-SIDE PRODUCT AVAILABILITY & PRICE VALIDATION ---
+    const rawItems: any[] = body.items;
+    const itemIds = rawItems.map(i => i.id).filter(Boolean);
+    const itemNames = rawItems.map(i => i.name).filter(Boolean);
+
+    let dbProducts: any[] = [];
+    if (itemIds.length > 0) {
+      const { data } = await supabase
+        .from('products')
+        .select('id, name_en, price, mrp, in_stock, category')
+        .in('id', itemIds);
+      if (data) dbProducts = data;
+    }
+    // Fallback lookup by name if any items did not have IDs
+    if (dbProducts.length < rawItems.length && itemNames.length > 0) {
+      const { data } = await supabase
+        .from('products')
+        .select('id, name_en, price, mrp, in_stock, category')
+        .in('name_en', itemNames);
+      if (data) {
+        // Merge without duplicates
+        const existingIds = new Set(dbProducts.map(p => p.id));
+        data.forEach(p => {
+          if (!existingIds.has(p.id)) dbProducts.push(p);
+        });
+      }
+    }
+
+    // 1. Check for Out of Stock items
+    const outOfStockItems: string[] = [];
+    const validatedItems: any[] = [];
+    let authoritativeSubtotal = 0;
+    let authoritativeDiscountTotal = 0;
+    let authoritativeNetTotal = 0;
+
+    for (const item of rawItems) {
+      const dbProd = dbProducts.find(p => (item.id && p.id === item.id) || p.name_en === item.name);
+      const qty = Math.max(1, parseInt(item.quantity || 1, 10));
+
+      if (dbProd) {
+        if (dbProd.in_stock === false) {
+          outOfStockItems.push(dbProd.name_en);
+        }
+        const effectivePrice = Number(dbProd.price);
+        const effectiveMrp = Number(dbProd.mrp || effectivePrice);
+        const lineTotal = effectivePrice * qty;
+        const lineGross = effectiveMrp * qty;
+        const lineDiscount = Math.max(0, lineGross - lineTotal);
+
+        authoritativeNetTotal += lineTotal;
+        authoritativeSubtotal += lineGross;
+        authoritativeDiscountTotal += lineDiscount;
+
+        validatedItems.push({
+          id: dbProd.id,
+          name: dbProd.name_en,
+          quantity: qty,
+          price: effectivePrice,
+          mrp: effectiveMrp,
+          category: dbProd.category,
+        });
+      } else {
+        // Product not in DB catalog
+        const itemPrice = Number(item.price || 0);
+        const itemMrp = Number(item.mrp || itemPrice);
+        const lineTotal = itemPrice * qty;
+        authoritativeNetTotal += lineTotal;
+        authoritativeSubtotal += (itemMrp * qty);
+        authoritativeDiscountTotal += Math.max(0, (itemMrp * qty) - lineTotal);
+
+        validatedItems.push({
+          id: item.id || null,
+          name: item.name,
+          quantity: qty,
+          price: itemPrice,
+          mrp: itemMrp,
+          category: item.category || 'General',
+        });
+      }
+    }
+
+    // Reject order immediately if any product is Out of Stock
+    if (outOfStockItems.length > 0) {
+      return NextResponse.json({
+        error: `Cannot complete purchase: The following product(s) are currently Out of Stock: ${outOfStockItems.join(', ')}. Please remove them from your cart to proceed.`,
+        outOfStock: outOfStockItems
+      }, { status: 400 });
+    }
+
+    const authoritativePacking = Math.round(authoritativeNetTotal * 0.03);
+    const authoritativeGrandTotal = authoritativeNetTotal + authoritativePacking;
+
     const orderNumber = generateOrderNumber();
 
     const { data, error } = await supabase
@@ -95,14 +191,14 @@ export async function POST(req: Request) {
         customer_pincode: body.customer_pincode || null,
         customer_state: body.customer_state || null,
         customer_district: body.customer_district || null,
-        items: body.items,
-        subtotal: body.subtotal || 0,
-        discount_total: body.discount_total || 0,
-        total_amount: body.total_amount,
+        items: validatedItems,
+        subtotal: authoritativeSubtotal,
+        discount_total: authoritativeDiscountTotal,
+        total_amount: authoritativeGrandTotal,
         status: 'confirmed',
         payment_method: body.payment_method || 'bank_transfer',
         payment_status: 'pending',
-        notes: body.notes || null,
+        notes: body.notes || `Includes 3% packing charges (₹${authoritativePacking.toLocaleString('en-IN')})`,
       })
       .select()
       .single();

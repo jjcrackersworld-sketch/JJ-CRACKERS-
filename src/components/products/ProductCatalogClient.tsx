@@ -6,6 +6,9 @@ import { SlidersHorizontal, Sparkles, ChevronDown, LayoutGrid, List } from 'luci
 import { ProductCard } from '@/components/products/ProductCard';
 import type { Product } from '@/lib/supabase/types';
 
+import { createClient } from '@/lib/supabase/client';
+import { useEnquiryStore } from '@/lib/store/enquiryStore';
+
 interface ProductCatalogClientProps {
   initialProducts: Product[];
   initialCategories: Array<{ id: string; label: string; emoji: string }>;
@@ -33,48 +36,111 @@ export function ProductCatalogClient({ initialProducts, initialCategories }: Pro
 
   useEffect(() => {
     setMounted(true);
-  }, []);
+    // Keep cart synchronized with current product prices & inventory
+    if (initialProducts && initialProducts.length > 0) {
+      useEnquiryStore.getState().syncWithLiveProducts(initialProducts);
+    }
+  }, [initialProducts]);
 
-  // Background stale-while-revalidate fetch to keep client fresh if initial data was missing
+  // Synchronize cart whenever allProducts state updates
+  useEffect(() => {
+    if (allProducts.length > 0) {
+      useEnquiryStore.getState().syncWithLiveProducts(allProducts);
+    }
+  }, [allProducts]);
+
+  // Real-time synchronization via Supabase Realtime + Focus / Visibility revalidation
   useEffect(() => {
     if (!mounted) return;
-    if (allProducts.length > 0) return;
 
-    const controller = new AbortController();
-
+    let isSubscribed = true;
     const fetchLatest = async () => {
       try {
-        const res = await fetch('/api/products?limit=1000', { signal: controller.signal });
-        if (!res.ok) throw new Error('Failed to fetch latest products');
+        const res = await fetch('/api/products?limit=1000', {
+          headers: { 'Cache-Control': 'no-cache' }
+        });
+        if (!res.ok) return;
         const data = await res.json();
+        const fetchedList: Product[] = Array.isArray(data) ? data : (data.products || []);
 
-        let fetchedList: Product[] = [];
-        if (Array.isArray(data)) {
-          fetchedList = data;
-        } else {
-          fetchedList = data.products || [];
-        }
-
-        if (fetchedList.length > 0) {
+        if (isSubscribed && fetchedList.length > 0) {
           setAllProducts(fetchedList);
           setTotalProducts(fetchedList.length);
+          useEnquiryStore.getState().syncWithLiveProducts(fetchedList);
         }
-      } catch (err: any) {
-        if (err.name !== 'AbortError') {
-          console.error('Failed to update products in background:', err);
-        }
+      } catch (err) {
+        console.warn('Background product revalidation note:', err);
       }
     };
 
-    const timer = setTimeout(() => {
+    // 1. Setup Supabase Realtime subscription
+    let channel: any = null;
+    try {
+      const supabase = createClient();
+      channel = supabase
+        .channel('public:products:storefront')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'products' },
+          (payload) => {
+            if (payload.eventType === 'UPDATE') {
+              const updated = payload.new as Product;
+              setAllProducts((prev) =>
+                prev.map((p) => (p.id === updated.id ? { ...p, ...updated } : p))
+              );
+            } else if (payload.eventType === 'INSERT') {
+              const inserted = payload.new as Product;
+              setAllProducts((prev) => {
+                if (prev.some((p) => p.id === inserted.id)) return prev;
+                return [...prev, inserted];
+              });
+              setTotalProducts((t) => t + 1);
+            } else if (payload.eventType === 'DELETE') {
+              const deleted = payload.old as { id: string };
+              setAllProducts((prev) => prev.filter((p) => p.id !== deleted.id));
+              setTotalProducts((t) => Math.max(0, t - 1));
+            }
+          }
+        )
+        .subscribe();
+    } catch (realtimeErr) {
+      console.warn('Supabase Realtime subscription note:', realtimeErr);
+    }
+
+    // 2. Setup active window focus & visibilitychange revalidation
+    const handleFocus = () => {
       fetchLatest();
-    }, 500);
+    };
+
+    const handleVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        fetchLatest();
+      }
+    };
+
+    window.addEventListener('focus', handleFocus);
+    document.addEventListener('visibilitychange', handleVisibility);
+
+    // 3. Fallback active polling every 45 seconds while user is actively browsing
+    const pollTimer = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        fetchLatest();
+      }
+    }, 45000);
 
     return () => {
-      clearTimeout(timer);
-      controller.abort();
+      isSubscribed = false;
+      window.removeEventListener('focus', handleFocus);
+      document.removeEventListener('visibilitychange', handleVisibility);
+      clearInterval(pollTimer);
+      if (channel) {
+        try {
+          const supabase = createClient();
+          supabase.removeChannel(channel);
+        } catch {}
+      }
     };
-  }, [mounted, allProducts.length]);
+  }, [mounted]);
 
   // Keep highlightedCategory in sync when activeCategory changes manually
   useEffect(() => {

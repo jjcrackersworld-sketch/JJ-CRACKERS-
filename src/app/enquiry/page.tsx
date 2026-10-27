@@ -12,7 +12,8 @@ import { formatOrderDate } from '@/lib/utils';
 
 export default function EnquiryPage() {
   const items = useEnquiryStore((state) => state.items);
-  const { removeItem, updateQuantity, getTotal, getSavings, clearCart } = useEnquiryStore.getState();
+  const { removeItem, updateQuantity, getTotal, getSavings, clearCart, removeOutOfStockItems, syncWithLiveProducts } = useEnquiryStore.getState();
+  const outOfStockItems = items.filter(i => i.product.in_stock === false);
   const [step, setStep] = useState(1);
   const [customerInfo, setCustomerInfo] = useState({ name: '', email: '', phone: '', address: '', city: '', pincode: '', state: '', district: '' });
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -42,6 +43,17 @@ export default function EnquiryPage() {
       .then(res => res.json())
       .then(data => { if (Array.isArray(data)) setBankAccounts(data); })
       .catch(err => console.error('Failed to load bank accounts:', err));
+
+    // Live catalog synchronization: verify product stock availability and current pricing
+    fetch('/api/products?limit=1000', { headers: { 'Cache-Control': 'no-cache' } })
+      .then(res => res.json())
+      .then(data => {
+        const prodList = Array.isArray(data) ? data : (data.products || []);
+        if (prodList.length > 0) {
+          syncWithLiveProducts(prodList);
+        }
+      })
+      .catch(err => console.error('Failed to sync live product catalog in checkout:', err));
   }, []);
 
   // Scroll to top of the page on step transitions (essential for mobile usability)
@@ -275,6 +287,7 @@ export default function EnquiryPage() {
 
     try {
       const orderItems = items.map(item => ({
+        id: item.product.id,
         name: item.product.name_en,
         quantity: item.quantity,
         price: item.product.price,
@@ -849,6 +862,27 @@ export default function EnquiryPage() {
               </motion.button>
             </Link>
           </div>
+
+          {outOfStockItems.length > 0 && (
+            <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4 text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 mb-6 shadow-xl">
+              <div className="flex items-start gap-3">
+                <AlertCircle size={22} className="shrink-0 mt-0.5 text-rose-400" />
+                <div>
+                  <span className="font-bold text-sm text-white">Unavailable Items in Your Cart</span>
+                  <p className="text-xs text-rose-300/90 mt-1">
+                    The following product(s) are currently marked Out of Stock: <span className="font-bold underline">{outOfStockItems.map(i => i.product.name_en).join(', ')}</span>. Please remove them to proceed with your order.
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={removeOutOfStockItems}
+                className="px-4 py-2 bg-rose-600 hover:bg-rose-500 text-white font-bold text-xs rounded-xl transition-all shadow-md shrink-0 cursor-pointer"
+              >
+                Remove Out of Stock Items
+              </button>
+            </div>
+          )}
+
           <div className="flex flex-col lg:flex-row gap-8 items-start">
             <div className="w-full lg:flex-1 glass-card rounded-2xl overflow-hidden">
               <div className="hidden md:grid grid-cols-12 gap-4 p-4 border-b border-[var(--border)] bg-[var(--surface-high)] font-bold text-[10px] text-[var(--text-muted)] uppercase tracking-[0.15em]">
@@ -862,7 +896,7 @@ export default function EnquiryPage() {
                     <motion.div
                       key={item.product.id}
                       exit={{ opacity: 0, x: -100, height: 0 }}
-                      className="p-4 flex flex-col md:flex-row items-stretch md:items-center gap-4"
+                      className={`p-4 flex flex-col md:flex-row items-stretch md:items-center gap-4 ${item.product.in_stock === false ? 'bg-rose-500/5 border border-rose-500/20' : ''}`}
                     >
                       {/* Left: Image & Details */}
                       <div className="flex items-center gap-4 flex-1">
@@ -880,6 +914,11 @@ export default function EnquiryPage() {
                           <h3 className="font-bold text-sm text-[var(--text)] truncate">
                             {item.product.name_en}
                           </h3>
+                          {item.product.in_stock === false && (
+                            <span className="inline-block mt-1 text-[10px] font-bold uppercase tracking-wider text-rose-400 bg-rose-500/10 border border-rose-500/30 px-2 py-0.5 rounded-full">
+                              Out of Stock
+                            </span>
+                          )}
                           {/* Price - Mobile Only */}
                           <div className="flex items-baseline gap-2 mt-1 md:hidden">
                             <span className="font-bold text-sm text-[var(--text)]">₹{item.product.price}</span>
@@ -970,11 +1009,21 @@ export default function EnquiryPage() {
                   </div>
                 )}
 
+                {outOfStockItems.length > 0 && (
+                  <div className="flex items-start gap-2.5 text-rose-400 bg-rose-500/10 border border-rose-500/20 rounded-xl p-3 mb-5 text-xs text-left">
+                    <AlertCircle size={15} className="shrink-0 mt-0.5" />
+                    <div>
+                      <span className="font-bold">Unavailable Stock Alert</span>
+                      <p className="mt-0.5 text-rose-300/80">Please remove the {outOfStockItems.length} out of stock item(s) to proceed.</p>
+                    </div>
+                  </div>
+                )}
+
                 <motion.button 
-                  onClick={() => getTotal() >= minOrderValue && goToStep(2)} 
-                  disabled={getTotal() < minOrderValue}
-                  whileHover={getTotal() >= minOrderValue ? { scale: 1.02 } : {}} 
-                  whileTap={getTotal() >= minOrderValue ? { scale: 0.98 } : {}}
+                  onClick={() => getTotal() >= minOrderValue && outOfStockItems.length === 0 && goToStep(2)} 
+                  disabled={getTotal() < minOrderValue || outOfStockItems.length > 0}
+                  whileHover={getTotal() >= minOrderValue && outOfStockItems.length === 0 ? { scale: 1.02 } : {}} 
+                  whileTap={getTotal() >= minOrderValue && outOfStockItems.length === 0 ? { scale: 0.98 } : {}}
                   className="w-full bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-bold rounded-xl py-3.5 text-sm shadow-lg flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed mb-3">
                   Proceed to Details <ArrowRight size={16} />
                 </motion.button>
@@ -1189,8 +1238,20 @@ export default function EnquiryPage() {
               </div>
             )}
 
-            <motion.button onClick={handlePlaceOrder} disabled={isSubmitting} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
-              className="w-full bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-bold rounded-xl py-4 text-lg shadow-lg flex items-center justify-center gap-3 disabled:opacity-50">
+            {outOfStockItems.length > 0 && (
+              <div className="flex items-start gap-3 text-rose-400 bg-rose-500/10 border border-rose-500/30 rounded-2xl p-4 text-left">
+                <AlertCircle size={18} className="shrink-0 mt-0.5 text-rose-400" />
+                <div>
+                  <span className="font-bold text-sm text-white">Unavailable Products in Order</span>
+                  <p className="text-xs text-rose-300/80 mt-1">
+                    The following product(s) are currently Out of Stock: {outOfStockItems.map(i => i.product.name_en).join(', ')}. Please return to Step 1 and remove them before placing order.
+                  </p>
+                </div>
+              </div>
+            )}
+
+            <motion.button onClick={handlePlaceOrder} disabled={isSubmitting || outOfStockItems.length > 0} whileHover={{ scale: 1.02 }} whileTap={{ scale: 0.98 }}
+              className="w-full bg-gradient-to-r from-[var(--color-gold)] to-[var(--color-gold-dark)] text-[#1a1400] font-bold rounded-xl py-4 text-lg shadow-lg flex items-center justify-center gap-3 disabled:opacity-50 cursor-pointer">
               {isSubmitting ? 'Placing Order...' : <><CheckCircle2 size={20} /> Confirm & Place Order</>}
             </motion.button>
           </div>

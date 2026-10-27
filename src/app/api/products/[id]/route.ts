@@ -1,4 +1,5 @@
 import { NextResponse } from 'next/server';
+import { revalidatePath } from 'next/cache';
 import { createClient } from '@supabase/supabase-js';
 import { requireAdmin, getClientIp } from '@/lib/security/auth';
 import { verifyApprovalToken } from '@/lib/security/approvals';
@@ -81,24 +82,36 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
     const updateData: Record<string, any> = {};
     if (body.name_en !== undefined) updateData.name_en = String(body.name_en).trim();
     if (body.name_ta !== undefined) updateData.name_ta = String(body.name_ta).trim();
+    if (body.slug !== undefined) updateData.slug = String(body.slug).trim();
     if (body.category !== undefined) updateData.category = body.category;
     if (body.price !== undefined) updateData.price = Number(body.price);
     if (body.mrp !== undefined) updateData.mrp = Number(body.mrp);
     if (body.image_url !== undefined && !body.image_url.startsWith('/api/product-image/')) updateData.image_url = body.image_url;
     if (body.in_stock !== undefined) updateData.in_stock = Boolean(body.in_stock);
     if (body.is_featured !== undefined) updateData.is_featured = Boolean(body.is_featured);
+    if (body.is_eco_friendly !== undefined) updateData.is_eco_friendly = Boolean(body.is_eco_friendly);
+    if (body.sort_order !== undefined) updateData.sort_order = Number(body.sort_order);
+    if (body.description_en !== undefined) updateData.description_en = body.description_en ? String(body.description_en).trim() : null;
+    if (body.description_ta !== undefined) updateData.description_ta = body.description_ta ? String(body.description_ta).trim() : null;
+    if (body.badge_text !== undefined) updateData.badge_text = body.badge_text ? String(body.badge_text).trim() : null;
 
-    // Recalculate discount
-    if (body.mrp !== undefined || body.price !== undefined) {
+    // Recalculate discount if mrp or price changed and discount wasn't explicitly supplied
+    if ((body.mrp !== undefined || body.price !== undefined) && body.discount_percent === undefined) {
       const mrp = Number(body.mrp !== undefined ? body.mrp : updateData.mrp !== undefined ? updateData.mrp : existing.mrp || 0);
       const price = Number(body.price !== undefined ? body.price : updateData.price !== undefined ? updateData.price : existing.price || 0);
       if (mrp > 0 && price < mrp) {
         updateData.discount_percent = Math.round(((mrp - price) / mrp) * 100);
-        updateData.badge_text = `🔥 ${updateData.discount_percent}% OFF`;
+        if (!updateData.badge_text) {
+          updateData.badge_text = `🔥 ${updateData.discount_percent}% OFF`;
+        }
       } else {
         updateData.discount_percent = 0;
-        updateData.badge_text = null;
+        if (!body.badge_text) {
+          updateData.badge_text = null;
+        }
       }
+    } else if (body.discount_percent !== undefined) {
+      updateData.discount_percent = Number(body.discount_percent);
     }
 
     const { data, error } = await supabase.from('products').update(updateData).eq('id', id).select().maybeSingle();
@@ -109,8 +122,19 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
 
     const updatedProduct = data || { ...existing, ...updateData };
 
-    // Clear RAM and edge cache so the updated product immediately reflects on the website
+    // Clear RAM and Next.js ISR caches so changes immediately reflect on the public website
     clearProductsCache();
+    try {
+      revalidatePath('/products');
+      revalidatePath('/');
+      revalidatePath('/enquiry');
+      if (updatedProduct.slug) {
+        revalidatePath(`/products/${updatedProduct.slug}`);
+      }
+      revalidatePath(`/products/${id}`);
+    } catch (revalidateErr) {
+      console.warn('Path revalidation note:', revalidateErr);
+    }
 
     // Record Immutable Audit Log
     try {
@@ -175,6 +199,13 @@ export async function DELETE(req: Request, { params }: { params: Promise<{ id: s
     }
 
     clearProductsCache();
+    try {
+      revalidatePath('/products');
+      revalidatePath('/');
+      revalidatePath('/enquiry');
+    } catch (revalidateErr) {
+      console.warn('Path revalidation note:', revalidateErr);
+    }
 
     try {
       await writeAuditRecord({

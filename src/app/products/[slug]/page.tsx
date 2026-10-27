@@ -216,7 +216,11 @@ export default async function ProductDetailPage({ params }: ProductPageProps) {
                 </div>
                 <div className="py-2.5 flex justify-between">
                   <span className="text-[var(--text-muted)]">Availability</span>
-                  <span className="font-semibold text-emerald-400">In Stock for Direct Order</span>
+                  {product.in_stock ? (
+                    <span className="font-semibold text-emerald-400">In Stock for Direct Order</span>
+                  ) : (
+                    <span className="font-semibold text-rose-400">Currently Out of Stock</span>
+                  )}
                 </div>
               </div>
             </div>

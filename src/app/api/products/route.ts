@@ -158,15 +158,27 @@ export async function POST(req: Request) {
         price,
         mrp,
         discount_percent,
-        badge_text: discount_percent > 0 ? `🔥 ${discount_percent}% OFF` : null,
+        badge_text: discount_percent > 0 ? `🔥 ${discount_percent}% OFF` : (body.badge_text || null),
         image_url: body.image_url || null,
         in_stock: body.in_stock !== undefined ? Boolean(body.in_stock) : true,
         is_featured: body.is_featured !== undefined ? Boolean(body.is_featured || body.featured) : false,
+        is_eco_friendly: body.is_eco_friendly !== undefined ? Boolean(body.is_eco_friendly) : false,
+        sort_order: body.sort_order !== undefined ? Number(body.sort_order) : 999,
+        description_en: body.description_en || null,
+        description_ta: body.description_ta || null,
       })
       .select()
       .single();
 
     if (error) throw error;
+
+    clearProductsCache();
+    try {
+      const { revalidatePath } = await import('next/cache');
+      revalidatePath('/products');
+      revalidatePath('/');
+      revalidatePath('/enquiry');
+    } catch {}
 
     // Record Immutable Audit Log
     await writeAuditRecord({
@@ -237,6 +249,14 @@ export async function DELETE(req: Request) {
       .select('id, name_en');
 
     if (error) throw error;
+
+    clearProductsCache();
+    try {
+      const { revalidatePath } = await import('next/cache');
+      revalidatePath('/products');
+      revalidatePath('/');
+      revalidatePath('/enquiry');
+    } catch {}
 
     await writeAuditRecord({
       timestamp: new Date().toISOString(),

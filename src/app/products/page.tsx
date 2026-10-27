@@ -1,8 +1,9 @@
 import { getCategories, getProducts } from '@/lib/db';
 import { ProductCatalogClient } from '@/components/products/ProductCatalogClient';
 
-// Cache page with Incremental Static Regeneration (ISR) for instant TTFB response
-export const revalidate = 60;
+// Force dynamic rendering so every visitor receives the authoritative database state
+export const dynamic = 'force-dynamic';
+export const revalidate = 0;
 
 export default async function ProductsPage() {
   // Fetch initial data directly on the server to optimize FCP, LCP and SEO

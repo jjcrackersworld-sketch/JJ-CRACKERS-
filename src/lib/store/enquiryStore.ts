@@ -19,6 +19,8 @@ interface EnquiryState {
   getItemCount: () => number;
   setLastActive: (timestamp: number) => void;
   checkCartExpiry: () => void;
+  syncWithLiveProducts: (liveProducts: Product[]) => void;
+  removeOutOfStockItems: () => void;
 }
 
 export const useEnquiryStore = create<EnquiryState>()(
@@ -28,6 +30,12 @@ export const useEnquiryStore = create<EnquiryState>()(
       lastActive: null,
 
       addItem: ({ product, quantity }) => {
+        // Enforce inventory availability rule: out of stock products cannot be added
+        if (product.in_stock === false) {
+          console.warn(`Cannot add out-of-stock product "${product.name_en}" to cart`);
+          return;
+        }
+
         set((state) => {
           const existing = state.items.find((i) => String(i.product.id) === String(product.id));
           const updatedItems = existing
@@ -47,6 +55,45 @@ export const useEnquiryStore = create<EnquiryState>()(
           items: state.items.filter((i) => i.product.id !== id),
           lastActive: Date.now()
         }));
+      },
+
+      removeOutOfStockItems: () => {
+        set((state) => ({
+          items: state.items.filter((i) => i.product.in_stock !== false),
+          lastActive: Date.now()
+        }));
+      },
+
+      syncWithLiveProducts: (liveProducts: Product[]) => {
+        if (!liveProducts || liveProducts.length === 0) return;
+        set((state) => {
+          let changed = false;
+          const updatedItems = state.items.map((item) => {
+            const live = liveProducts.find(
+              (p) => String(p.id) === String(item.product.id) || p.slug === item.product.slug
+            );
+            if (!live) return item;
+
+            if (
+              live.in_stock !== item.product.in_stock ||
+              live.price !== item.product.price ||
+              live.mrp !== item.product.mrp ||
+              live.name_en !== item.product.name_en
+            ) {
+              changed = true;
+              return {
+                ...item,
+                product: {
+                  ...item.product,
+                  ...live,
+                },
+              };
+            }
+            return item;
+          });
+
+          return changed ? { items: updatedItems } : state;
+        });
       },
 
       updateQuantity: (id, quantity) => {

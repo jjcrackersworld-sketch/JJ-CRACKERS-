@@ -80,11 +80,11 @@ export async function getCategories() {
   }
 }
 
-// In-memory RAM cache for ultra-fast (<0.1ms) catalog serving
-let cachedProducts: Product[] | null = (staticProducts as unknown as Product[]);
-let lastProductsFetchTime = Date.now();
+// In-memory RAM cache for ultra-fast (<0.1ms) catalog serving with high-speed DB sync
+let cachedProducts: Product[] | null = null;
+let lastProductsFetchTime = 0;
 let isFetchingProducts = false;
-const PRODUCTS_CACHE_TTL = 180000; // 3 minutes stale-while-revalidate TTL
+const PRODUCTS_CACHE_TTL = 10000; // 10 seconds SWR TTL to ensure near-instant sync
 
 export function clearProductsCache() {
   cachedProducts = null;
@@ -101,7 +101,7 @@ async function refreshProductsInBackground(supabaseUrl: string, supabaseKey: str
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('products')
-      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order')
+      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,description_en,description_ta,in_stock,is_featured,is_eco_friendly,sort_order')
       .order('sort_order', { ascending: true })
       .order('category', { ascending: true })
       .order('price', { ascending: true })
@@ -126,9 +126,8 @@ export async function getProducts(): Promise<Product[]> {
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-  // If cache is present, return immediately for instant <0.1ms response
+  // If cache is fresh (<10s), return immediately for instant <0.1ms response
   if (cachedProducts && cachedProducts.length > 0) {
-    // If cache is stale and Supabase is configured, refresh asynchronously in background
     if (now - lastProductsFetchTime >= PRODUCTS_CACHE_TTL && supabaseUrl && supabaseKey && !supabaseUrl.includes('your_supabase')) {
       refreshProductsInBackground(supabaseUrl, supabaseKey);
     }
@@ -145,7 +144,7 @@ export async function getProducts(): Promise<Product[]> {
     const supabase = createClient(supabaseUrl, supabaseKey);
     const { data, error } = await supabase
       .from('products')
-      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order')
+      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,description_en,description_ta,in_stock,is_featured,is_eco_friendly,sort_order')
       .order('sort_order', { ascending: true })
       .order('category', { ascending: true })
       .order('price', { ascending: true })
@@ -157,45 +156,50 @@ export async function getProducts(): Promise<Product[]> {
       image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
     }));
 
-    cachedProducts = sanitized.length > 0 ? sanitized : (staticProducts as unknown as Product[]);
-    lastProductsFetchTime = now;
-    return cachedProducts;
+    if (sanitized.length > 0) {
+      cachedProducts = sanitized;
+      lastProductsFetchTime = now;
+      return cachedProducts;
+    }
+
+    return (staticProducts as unknown as Product[]);
   } catch (err) {
-    console.error('Failed to fetch products:', err);
+    console.error('Failed to fetch products from database:', err);
     return cachedProducts || (staticProducts as unknown as Product[]);
   }
 }
 
 export async function getProductBySlug(slug: string): Promise<Product | null> {
-  const products = await getProducts();
   const decoded = decodeURIComponent(slug);
-  const found = products.find(p => p.slug === decoded || p.id === decoded || p.slug === slug);
-  if (found) return found;
-
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-  if (!supabaseUrl || !supabaseKey) return null;
 
-  try {
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data } = await supabase
-      .from('products')
-      .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order')
-      .or(`slug.eq.${decoded},id.eq.${decoded},slug.eq.${slug}`)
-      .limit(1)
-      .maybeSingle();
+  if (supabaseUrl && supabaseKey && !supabaseUrl.includes('your_supabase')) {
+    try {
+      const supabase = createClient(supabaseUrl, supabaseKey);
+      const { data, error } = await supabase
+        .from('products')
+        .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,description_en,description_ta,in_stock,is_featured,is_eco_friendly,sort_order')
+        .or(`slug.eq.${decoded},id.eq.${decoded},slug.eq.${slug}`)
+        .limit(1)
+        .maybeSingle();
 
-    if (data) {
-      let img = data.image_url;
-      if (!img || img.startsWith('data:image')) {
-        img = `/api/product-image/${data.id}`;
+      if (!error && data) {
+        let img = data.image_url;
+        if (!img || img.startsWith('data:image')) {
+          img = `/api/product-image/${data.id}`;
+        }
+        return { ...data, image_url: img } as unknown as Product;
       }
-      return { ...data, image_url: img } as unknown as Product;
+    } catch (err) {
+      console.error('Failed to get product by slug from Supabase:', err);
     }
-  } catch (err) {
-    console.error('Failed to get product by slug:', err);
   }
-  return null;
+
+  // Fallback to catalog
+  const products = await getProducts();
+  const found = products.find(p => p.slug === decoded || p.id === decoded || p.slug === slug);
+  return found || null;
 }
 
 export async function getRelatedProducts(category: string, currentId: string, limit = 4): Promise<Product[]> {
