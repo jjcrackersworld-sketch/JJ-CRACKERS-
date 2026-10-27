@@ -71,10 +71,10 @@ export async function POST(req: Request) {
   if (denied) return denied;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
     if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
-      return NextResponse.json({ error: 'Supabase not configured. Please set SUPABASE_SERVICE_ROLE_KEY in environment.' }, { status: 400 });
+      return NextResponse.json({ error: 'Supabase not configured.' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -111,10 +111,10 @@ export async function PUT(req: Request) {
   if (denied) return denied;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
     if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
-      return NextResponse.json({ error: 'Supabase not configured. Please set SUPABASE_SERVICE_ROLE_KEY in environment.' }, { status: 400 });
+      return NextResponse.json({ error: 'Supabase not configured.' }, { status: 400 });
     }
 
     const supabase = createClient(supabaseUrl, supabaseKey);
@@ -151,10 +151,10 @@ export async function DELETE(req: Request) {
   if (denied) return denied;
   try {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || '';
+    const supabaseKey = process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
     if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
-      return NextResponse.json({ error: 'Supabase not configured. Please set SUPABASE_SERVICE_ROLE_KEY in environment.' }, { status: 400 });
+      return NextResponse.json({ error: 'Supabase not configured.' }, { status: 400 });
     }
 
     const { searchParams } = new URL(req.url);
