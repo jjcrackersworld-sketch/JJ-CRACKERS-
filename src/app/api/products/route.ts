@@ -53,10 +53,15 @@ export async function GET(req: Request) {
       if (error) throw error;
 
       return NextResponse.json({
-        products: (data || []).map((p: any) => ({
-          ...p,
-          image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
-        })),
+        products: (data || []).map((p: any) => {
+          let img = p.image_url;
+          if (img && typeof img === 'string' && img.startsWith('data:image')) {
+            img = `/api/product-image/${p.id}`;
+          } else if (!img) {
+            img = `/products/${p.slug}.jpg`;
+          }
+          return { ...p, image_url: img };
+        }),
         total: count || 0,
         page,
         limit,

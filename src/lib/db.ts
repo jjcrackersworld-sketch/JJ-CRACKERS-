@@ -108,10 +108,15 @@ async function refreshProductsInBackground(supabaseUrl: string, supabaseKey: str
       .limit(1000);
 
     if (!error && data && data.length > 0) {
-      cachedProducts = data.map((p: any) => ({
-        ...p,
-        image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
-      }));
+      cachedProducts = data.map((p: any) => {
+        let img = p.image_url;
+        if (img && typeof img === 'string' && img.startsWith('data:image')) {
+          img = `/api/product-image/${p.id}`;
+        } else if (!img) {
+          img = `/products/${p.slug}.jpg`;
+        }
+        return { ...p, image_url: img };
+      });
       lastProductsFetchTime = Date.now();
     }
   } catch (err) {
@@ -151,10 +156,15 @@ export async function getProducts(): Promise<Product[]> {
       .limit(1000);
     if (error) throw error;
 
-    const sanitized: Product[] = (data || []).map((p: any) => ({
-      ...p,
-      image_url: p.image_url || `/products/${p.slug}.jpg` || `/product-assets/${p.id}.jpg`,
-    }));
+    const sanitized: Product[] = (data || []).map((p: any) => {
+      let img = p.image_url;
+      if (img && typeof img === 'string' && img.startsWith('data:image')) {
+        img = `/api/product-image/${p.id}`;
+      } else if (!img) {
+        img = `/products/${p.slug}.jpg`;
+      }
+      return { ...p, image_url: img };
+    });
 
     if (sanitized.length > 0) {
       cachedProducts = sanitized;
