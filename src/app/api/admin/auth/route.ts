@@ -43,8 +43,8 @@ export async function POST(req: Request) {
       // Generate HMAC-SHA256 Signed Admin Session Token
       const token = createAdminToken('super_admin', ip);
 
-      // Audit Record
-      await writeAuditRecord({
+      // Non-blocking Audit Record (executes in background without delaying admin login)
+      writeAuditRecord({
         timestamp: new Date().toISOString(),
         actor: 'admin',
         action: 'SECURITY_CONFIG_UPDATE',
@@ -53,7 +53,7 @@ export async function POST(req: Request) {
         ip,
         status: 'SUCCESS',
         details: 'Admin logged in successfully',
-      });
+      }).catch((err) => console.error('Background login audit error:', err));
 
       return NextResponse.json({
         success: true,

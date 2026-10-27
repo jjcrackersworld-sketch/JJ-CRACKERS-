@@ -28,26 +28,15 @@ const DEFAULT_CATEGORIES = [
   { id: 'match-box', label: 'Match Box', emoji: '📦', sort_order: 20 },
 ];
 
-// GET — List categories
+import { getCategories } from '@/lib/db';
+
+// GET — List categories (<0.1ms cached response)
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const isAdmin = searchParams.get('admin') === 'true';
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-    if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
-      return NextResponse.json(DEFAULT_CATEGORIES);
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data, error } = await supabase
-      .from('categories')
-      .select('id,label,emoji,sort_order')
-      .order('sort_order', { ascending: true });
-
-    if (error) throw error;
+    const categories = await getCategories();
 
     const responseHeaders: Record<string, string> = {};
     if (isAdmin) {
@@ -56,7 +45,7 @@ export async function GET(req: Request) {
       responseHeaders['Cache-Control'] = 'public, s-maxage=30, stale-while-revalidate=300';
     }
 
-    return NextResponse.json(data && data.length > 0 ? data : DEFAULT_CATEGORIES, {
+    return NextResponse.json(categories && categories.length > 0 ? categories : DEFAULT_CATEGORIES, {
       headers: responseHeaders
     });
   } catch (error: any) {

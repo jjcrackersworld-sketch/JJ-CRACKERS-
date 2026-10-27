@@ -531,32 +531,51 @@ export default function AdminPage() {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // 1. Fast core dashboard data fetch for Overview, Orders & Products
-      const [o, s, cats, p] = await Promise.all([
-        adminFetch('/api/orders').then(r => r.json()).catch(() => null),
-        adminFetch('/api/settings?admin=true').then(r => r.json()).catch(() => null),
-        adminFetch('/api/categories?admin=true').then(r => r.json()).catch(() => null),
-        adminFetch('/api/products?admin=true&limit=500').then(r => r.json()).catch(() => null),
-      ]);
-      if (Array.isArray(o)) {
-        setOrders(o);
-        setCached('orders', o);
-      }
-      if (s && Object.keys(s).length > 0) {
-        setSettings(s);
-        setCached('settings', s);
-      }
-      if (Array.isArray(cats)) {
-        setCategories(cats);
-        setCached('categories', cats);
-      }
-      if (p) {
-        const prodList = Array.isArray(p) ? p : (p.products || []);
-        setProducts(prodList);
-        setCached('products', prodList);
-      }
-    } catch (err) { 
-      console.error('Error fetching core admin data:', err); 
+      // 1. Parallel independent data fetching — updates state immediately as each request resolves
+      const ordersPromise = adminFetch('/api/orders')
+        .then((r) => r.json())
+        .then((o) => {
+          if (Array.isArray(o)) {
+            setOrders(o);
+            setCached('orders', o);
+          }
+        })
+        .catch(() => null);
+
+      const settingsPromise = adminFetch('/api/settings?admin=true')
+        .then((r) => r.json())
+        .then((s) => {
+          if (s && Object.keys(s).length > 0) {
+            setSettings(s);
+            setCached('settings', s);
+          }
+        })
+        .catch(() => null);
+
+      const catsPromise = adminFetch('/api/categories?admin=true')
+        .then((r) => r.json())
+        .then((cats) => {
+          if (Array.isArray(cats)) {
+            setCategories(cats);
+            setCached('categories', cats);
+          }
+        })
+        .catch(() => null);
+
+      const productsPromise = adminFetch('/api/products?admin=true&limit=500')
+        .then((r) => r.json())
+        .then((p) => {
+          if (p) {
+            const prodList = Array.isArray(p) ? p : (p.products || []);
+            setProducts(prodList);
+            setCached('products', prodList);
+          }
+        })
+        .catch(() => null);
+
+      await Promise.all([ordersPromise, settingsPromise, catsPromise, productsPromise]);
+    } catch (err) {
+      console.error('Error fetching core admin data:', err);
     } finally {
       setLoading(false);
     }

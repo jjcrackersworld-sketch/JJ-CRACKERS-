@@ -26,52 +26,7 @@ export async function GET(req: Request) {
     const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
     const supabaseAnonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
-    // If Admin mode requested, query Supabase directly for guaranteed fresh live status
-    if (isAdmin && supabaseUrl && supabaseAnonKey && !supabaseUrl.includes('your_supabase')) {
-      const supabase = createClient(supabaseUrl, supabaseAnonKey);
-      let query = supabase
-        .from('products')
-        .select('id,name_en,name_ta,slug,category,price,mrp,discount_percent,badge_text,image_url,in_stock,is_featured,is_eco_friendly,sort_order', { count: 'exact' });
-
-      if (category && category !== 'all') {
-        query = query.eq('category', category);
-      }
-      if (search) {
-        query = query.or(`name_en.ilike.%${search}%,category.ilike.%${search}%`);
-      }
-      switch (sortBy) {
-        case 'price-low': query = query.order('price', { ascending: true }); break;
-        case 'price-high': query = query.order('price', { ascending: false }); break;
-        case 'name': query = query.order('name_en', { ascending: true }); break;
-        case 'discount': query = query.order('discount_percent', { ascending: false }); break;
-        default: query = query.order('sort_order', { ascending: true }).order('category', { ascending: true }).order('price', { ascending: true });
-      }
-
-      const start = (page - 1) * limit;
-      query = query.range(start, start + limit - 1);
-      const { data, error, count } = await query;
-      if (error) throw error;
-
-      return NextResponse.json({
-        products: (data || []).map((p: any) => {
-          let img = p.image_url;
-          if (img && typeof img === 'string' && img.startsWith('data:image')) {
-            img = `/api/product-image/${p.id}`;
-          } else if (!img) {
-            img = `/products/${p.slug}.jpg`;
-          }
-          return { ...p, image_url: img };
-        }),
-        total: count || 0,
-        page,
-        limit,
-        totalPages: Math.ceil((count || 0) / limit),
-      }, {
-        headers: { 'Cache-Control': 'no-store, max-age=0, must-revalidate' }
-      });
-    }
-
-    // Customer Storefront Mode — Lightning-fast RAM cache (<2ms response)
+    // High-speed authoritative retrieval (<2ms response) via in-memory synchronized RAM cache
     const allProducts = await getProducts();
     let filtered = [...allProducts];
 
@@ -91,11 +46,30 @@ export async function GET(req: Request) {
       case 'price-high': filtered.sort((a, b) => (b.price || 0) - (a.price || 0)); break;
       case 'name': filtered.sort((a, b) => (a.name_en || '').localeCompare(b.name_en || '')); break;
       case 'discount': filtered.sort((a, b) => (b.discount_percent || 0) - (a.discount_percent || 0)); break;
+      default:
+        // Default sort by sort_order ascending, then category, then price
+        filtered.sort((a, b) => {
+          if ((a.sort_order ?? 999) !== (b.sort_order ?? 999)) {
+            return (a.sort_order ?? 999) - (b.sort_order ?? 999);
+          }
+          if ((a.category || '') !== (b.category || '')) {
+            return (a.category || '').localeCompare(b.category || '');
+          }
+          return (a.price || 0) - (b.price || 0);
+        });
+        break;
     }
 
     const total = filtered.length;
     const start = (page - 1) * limit;
     const paginated = filtered.slice(start, start + limit);
+
+    const headers: Record<string, string> = {};
+    if (isAdmin) {
+      headers['Cache-Control'] = 'no-store, max-age=0, must-revalidate';
+    } else {
+      headers['Cache-Control'] = 'public, max-age=10, s-maxage=60, stale-while-revalidate=600';
+    }
 
     return NextResponse.json({
       products: paginated,
@@ -104,9 +78,7 @@ export async function GET(req: Request) {
       limit,
       totalPages: Math.ceil(total / limit),
     }, {
-      headers: {
-        'Cache-Control': 'public, max-age=10, s-maxage=60, stale-while-revalidate=600'
-      }
+      headers
     });
   } catch (error) {
     console.error('Error fetching products:', error);

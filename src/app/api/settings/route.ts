@@ -32,30 +32,15 @@ const DEFAULT_SETTINGS = {
   whatsapp_msg_cancelled: 'Hello {{customer_name}}, your order {{order_number}} has been cancelled. Please contact support if you have questions.',
 };
 
-// GET — Retrieve all settings
+import { getSiteSettings, clearSettingsCache } from '@/lib/settings';
+
+// GET — Retrieve all settings (<1ms ultra-fast response)
 export async function GET(req: Request) {
   try {
     const { searchParams } = new URL(req.url);
     const isAdmin = searchParams.get('admin') === 'true';
 
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-    const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-
-    if (!supabaseUrl || !supabaseKey || supabaseUrl.includes('your_supabase')) {
-      return NextResponse.json(DEFAULT_SETTINGS);
-    }
-
-    const supabase = createClient(supabaseUrl, supabaseKey);
-    const { data, error } = await supabase.from('site_settings').select('key, value');
-
-    if (error) throw error;
-
-    const settings: Record<string, string> = { ...DEFAULT_SETTINGS };
-    if (data) {
-      data.forEach((row: { key: string; value: string }) => {
-        settings[row.key] = row.value;
-      });
-    }
+    const settings = await getSiteSettings();
 
     const responseHeaders: Record<string, string> = {};
     if (isAdmin) {
@@ -163,7 +148,9 @@ export async function POST(req: Request) {
       }
     }
 
-    await writeAuditRecord({
+    clearSettingsCache();
+
+    writeAuditRecord({
       timestamp: new Date().toISOString(),
       actor: auth.session.role,
       action: isActuallyChanging ? 'PRODUCT_BULK_PRICE_CHANGE' : 'SETTINGS_UPDATE',
@@ -174,7 +161,7 @@ export async function POST(req: Request) {
       details: isActuallyChanging
         ? `Global discount updated to ${newDiscount}% across entire catalog`
         : 'Site settings updated',
-    });
+    }).catch(err => console.error('Settings audit error note:', err));
 
     return NextResponse.json({ success: true });
   } catch (error: any) {

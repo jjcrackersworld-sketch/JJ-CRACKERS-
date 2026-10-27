@@ -1,18 +1,70 @@
 'use client';
 
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { ShoppingCart, Plus, Minus, Check, MessageCircle } from 'lucide-react';
 import { useEnquiryStore } from '@/lib/store/enquiryStore';
+import { createClient } from '@/lib/supabase/client';
 import type { Product } from '@/lib/supabase/types';
 
 interface ProductDetailActionsProps {
   product: Product;
 }
 
-export function ProductDetailActions({ product }: ProductDetailActionsProps) {
+export function ProductDetailActions({ product: initialProduct }: ProductDetailActionsProps) {
+  const [product, setProduct] = useState<Product>(initialProduct);
   const items = useEnquiryStore((state) => state.items);
   const { addItem, updateQuantity } = useEnquiryStore.getState();
   const [isAdded, setIsAdded] = useState(false);
+
+  useEffect(() => {
+    setProduct(initialProduct);
+  }, [initialProduct]);
+
+  // Real-time synchronization via Supabase Realtime for instant stock & price updates
+  useEffect(() => {
+    let channel: any = null;
+    try {
+      const supabase = createClient();
+      channel = supabase
+        .channel(`product-detail:${product.id}`)
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'products', filter: `id=eq.${product.id}` },
+          (payload) => {
+            if (payload.new) {
+              const updated = payload.new as Product;
+              setProduct((prev) => ({ ...prev, ...updated }));
+              useEnquiryStore.getState().syncWithLiveProducts([updated]);
+            }
+          }
+        )
+        .subscribe();
+    } catch (err) {
+      console.warn('Realtime subscription note for product detail:', err);
+    }
+
+    const handleFocus = async () => {
+      try {
+        const res = await fetch(`/api/products/${product.id}`);
+        if (res.ok) {
+          const fresh = await res.json();
+          setProduct((prev) => ({ ...prev, ...fresh }));
+        }
+      } catch {}
+    };
+
+    window.addEventListener('focus', handleFocus);
+
+    return () => {
+      window.removeEventListener('focus', handleFocus);
+      if (channel) {
+        try {
+          const supabase = createClient();
+          supabase.removeChannel(channel);
+        } catch {}
+      }
+    };
+  }, [product.id]);
 
   const cartItem = items.find((i) => String(i.product.id) === String(product.id));
   const inCartQty = cartItem ? cartItem.quantity : 0;

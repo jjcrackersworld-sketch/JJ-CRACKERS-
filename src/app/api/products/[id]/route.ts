@@ -136,24 +136,20 @@ export async function PATCH(req: Request, { params }: { params: Promise<{ id: st
       console.warn('Path revalidation note:', revalidateErr);
     }
 
-    // Record Immutable Audit Log
-    try {
-      await writeAuditRecord({
-        timestamp: new Date().toISOString(),
-        actor: auth.session.role,
-        action: isPriceChange ? 'PRODUCT_UPDATE_PRICE' : 'PRODUCT_UPDATE_DETAILS',
-        riskLevel,
-        targetIds: [id],
-        beforeState: { price: existing.price, mrp: existing.mrp, category: existing.category, in_stock: existing.in_stock },
-        afterState: { price: updatedProduct.price, mrp: updatedProduct.mrp, category: updatedProduct.category, in_stock: updatedProduct.in_stock },
-        approvalId: approvalToken || 'direct_admin_session',
-        ip,
-        status: 'SUCCESS',
-        details: `Updated product ${existing.name_en} (${id})`,
-      });
-    } catch (auditErr) {
-      console.error('Audit record error:', auditErr);
-    }
+    // Record Immutable Audit Log in background without delaying response
+    writeAuditRecord({
+      timestamp: new Date().toISOString(),
+      actor: auth.session.role,
+      action: isPriceChange ? 'PRODUCT_UPDATE_PRICE' : 'PRODUCT_UPDATE_DETAILS',
+      riskLevel,
+      targetIds: [id],
+      beforeState: { price: existing.price, mrp: existing.mrp, category: existing.category, in_stock: existing.in_stock },
+      afterState: { price: updatedProduct.price, mrp: updatedProduct.mrp, category: updatedProduct.category, in_stock: updatedProduct.in_stock },
+      approvalId: approvalToken || 'direct_admin_session',
+      ip,
+      status: 'SUCCESS',
+      details: `Updated product ${existing.name_en} (${id})`,
+    }).catch((auditErr) => console.error('Audit record note:', auditErr));
 
     return NextResponse.json(updatedProduct);
   } catch (error: any) {

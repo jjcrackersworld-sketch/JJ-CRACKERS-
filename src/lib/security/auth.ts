@@ -252,5 +252,9 @@ export function requireAdmin(
 export function adminAuthHeaders(): Record<string, string> {
   if (typeof window === 'undefined') return {};
   const token = localStorage.getItem('jj-admin-token');
-  return token ? { Authorization: `Bearer ${token}` } : {};
+  if (!token) return {};
+  return {
+    'Authorization': `Bearer ${token}`,
+    'x-admin-token': token,
+  };
 }

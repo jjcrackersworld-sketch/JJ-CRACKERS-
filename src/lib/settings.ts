@@ -24,7 +24,21 @@ const DEFAULT_SETTINGS = {
   whatsapp_msg_cancelled: 'Hello {{customer_name}}, your order {{order_number}} has been cancelled. Please contact support if you have questions.',
 };
 
-export async function getSiteSettings() {
+let cachedSettings: Record<string, string> | null = null;
+let lastSettingsFetchTime = 0;
+const SETTINGS_CACHE_TTL = 30000; // 30 seconds TTL
+
+export function clearSettingsCache() {
+  cachedSettings = null;
+  lastSettingsFetchTime = 0;
+}
+
+export async function getSiteSettings(): Promise<Record<string, string>> {
+  const now = Date.now();
+  if (cachedSettings && now - lastSettingsFetchTime < SETTINGS_CACHE_TTL) {
+    return cachedSettings;
+  }
+
   const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
   const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
 
@@ -34,7 +48,6 @@ export async function getSiteSettings() {
 
   try {
     const supabase = createClient(supabaseUrl, supabaseKey);
-    // Fetch settings directly from site_settings table
     const { data, error } = await supabase.from('site_settings').select('key, value');
     if (error) throw error;
 
@@ -44,9 +57,11 @@ export async function getSiteSettings() {
         settings[row.key] = row.value;
       });
     }
+    cachedSettings = settings;
+    lastSettingsFetchTime = now;
     return settings;
   } catch (error) {
     console.error('Error getting settings directly on server:', error);
-    return DEFAULT_SETTINGS;
+    return cachedSettings || DEFAULT_SETTINGS;
   }
 }
